@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: HiFixServices
+    env: python
+    plan: free
+    region: oregon
+    buildCommand: |
+      pip install -r requirements.txt gunicorn gevent psycopg2-binary
+      python manage.py collectstatic --noinput
+    startCommand: |
+      echo "Starting Gunicorn on port $PORT" &&
+      gunicorn servicespro.wsgi:application \
+        --bind 0.0.0.0:$PORT \
+        --workers 1 \
+        --timeout 30 \
+        --worker-class gevent \
+        --max-requests 50 \
+        --max-requests-jitter 10 \
+        --log-level debug \
+        --access-logfile - \
+        --error-logfile -
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: servicespro.settings
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PORT
+        value: 10000
+      - key: DB_NAME
+        value: hifixprod
+      - key: DB_USER
+        value: postgres
+      - key: DB_PASSWORD
+        fromSecret: true
+      - key: DB_HOST
+        value: 54.203.209.129
+      - key: DB_PORT
+        value: 5432
+      - key: PYTHONUNBUFFERED
+        value: 1
+    healthCheckPath: /health/
+    autoDeploy: true

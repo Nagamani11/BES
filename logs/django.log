@@ -1,0 +1,72 @@
+INFO 2025-06-02 18:02:25,586 autoreload 3800 3596 Watching for file changes with StatReloader
+INFO 2025-06-02 18:02:25,586 autoreload 23300 21624 Watching for file changes with StatReloader
+INFO 2025-06-02 18:02:32,018 autoreload 3800 3596 C:\Backend-Service\servicespro\settings.py changed, reloading.
+INFO 2025-06-02 18:02:32,058 autoreload 23300 21624 C:\Backend-Service\servicespro\settings.py changed, reloading.
+INFO 2025-06-02 18:02:36,368 autoreload 17460 7468 Watching for file changes with StatReloader
+INFO 2025-06-02 18:02:36,440 autoreload 12240 10684 Watching for file changes with StatReloader
+INFO 2025-06-02 18:03:47,622 autoreload 10928 8004 Watching for file changes with StatReloader
+INFO 2025-06-02 18:05:00,126 autoreload 17460 7468 C:\Backend-Service\servicespro\settings.py changed, reloading.
+INFO 2025-06-02 18:05:00,469 autoreload 10928 8004 C:\Backend-Service\servicespro\settings.py changed, reloading.
+INFO 2025-06-02 18:05:03,227 autoreload 10892 21536 Watching for file changes with StatReloader
+INFO 2025-06-02 18:05:03,537 autoreload 14032 14248 Watching for file changes with StatReloader
+INFO 2025-06-02 18:07:47,608 autoreload 10892 21536 C:\Backend-Service\servicespro\settings.py changed, reloading.
+INFO 2025-06-02 18:07:47,644 autoreload 14032 14248 C:\Backend-Service\servicespro\settings.py changed, reloading.
+INFO 2025-06-02 18:07:52,020 autoreload 22876 21212 Watching for file changes with StatReloader
+INFO 2025-06-02 18:07:52,070 autoreload 8236 11684 Watching for file changes with StatReloader
+INFO 2025-06-02 18:09:14,243 autoreload 8236 11684 C:\Backend-Service\servicesapp\apps.py changed, reloading.
+INFO 2025-06-02 18:09:14,544 autoreload 22876 21212 C:\Backend-Service\servicesapp\apps.py changed, reloading.
+INFO 2025-06-02 18:09:16,812 autoreload 7520 1300 Watching for file changes with StatReloader
+INFO 2025-06-02 18:09:17,043 autoreload 22820 22356 Watching for file changes with StatReloader
+INFO 2025-06-02 18:09:20,887 autoreload 7520 1300 C:\Backend-Service\servicesapp\apps.py changed, reloading.
+INFO 2025-06-02 18:09:21,135 autoreload 22820 22356 C:\Backend-Service\servicesapp\apps.py changed, reloading.
+INFO 2025-06-02 18:09:23,825 autoreload 6356 20388 Watching for file changes with StatReloader
+INFO 2025-06-02 18:09:24,103 autoreload 22900 18956 Watching for file changes with StatReloader
+INFO 2025-06-02 18:16:53,720 autoreload 7592 6080 Watching for file changes with StatReloader
+INFO 2025-06-02 18:22:45,182 autoreload 20284 11432 Watching for file changes with StatReloader
+INFO 2025-06-02 18:43:39,854 autoreload 16220 19792 Watching for file changes with StatReloader
+INFO 2025-06-02 18:44:57,678 autoreload 14952 15864 Watching for file changes with StatReloader
+INFO 2025-06-02 18:45:30,973 autoreload 14952 15864 C:\Backend-Service\servicespro\settings.py changed, reloading.
+INFO 2025-06-02 18:45:31,810 autoreload 19812 20516 Watching for file changes with StatReloader
+INFO 2025-06-02 18:57:15,135 autoreload 9092 12372 Watching for file changes with StatReloader
+INFO 2025-06-02 19:03:42,961 autoreload 22104 22168 Watching for file changes with StatReloader
+INFO 2025-06-02 19:03:54,653 autoreload 22104 22168 C:\Backend-Service\servicespro\urls.py changed, reloading.
+INFO 2025-06-02 19:03:56,861 autoreload 23096 7188 Watching for file changes with StatReloader
+INFO 2025-06-02 19:04:01,792 autoreload 23096 7188 C:\Backend-Service\servicespro\urls.py changed, reloading.
+INFO 2025-06-02 19:04:03,294 autoreload 21928 12152 Watching for file changes with StatReloader
+INFO 2025-06-02 19:04:27,199 autoreload 21928 12152 C:\Backend-Service\servicespro\urls.py changed, reloading.
+INFO 2025-06-02 19:04:28,842 autoreload 7568 7700 Watching for file changes with StatReloader
+INFO 2025-06-02 19:15:21,695 basehttp 7568 22436 "GET /get_pending_orders/1/ HTTP/1.1" 200 153
+INFO 2025-06-02 19:15:49,947 autoreload 7568 7700 C:\Backend-Service\servicesapp\views.py changed, reloading.
+INFO 2025-06-02 19:15:52,864 autoreload 8308 932 Watching for file changes with StatReloader
+WARNING 2025-06-02 19:17:01,163 log 8308 12736 Bad Request: /order_otp_apps/
+WARNING 2025-06-02 19:17:01,164 basehttp 8308 12736 "GET /order_otp_apps/ HTTP/1.1" 400 33
+WARNING 2025-06-02 19:18:00,815 log 8308 12736 Bad Request: /order_otp_apps/
+WARNING 2025-06-02 19:18:00,816 basehttp 8308 12736 "GET /order_otp_apps/?phone=+919876543210 HTTP/1.1" 400 33
+ERROR 2025-06-02 19:19:38,175 log 8308 9632 Bad Gateway: /order_otp_apps/
+ERROR 2025-06-02 19:19:38,179 basehttp 8308 9632 "GET /order_otp_apps/?phone_number=+919876543210 HTTP/1.1" 502 47
+ERROR 2025-06-02 19:21:29,849 log 8308 13952 Bad Gateway: /order_otp_apps/
+ERROR 2025-06-02 19:21:29,851 basehttp 8308 13952 "GET /order_otp_apps/?phone_number=+919876543210 HTTP/1.1" 502 47
+ERROR 2025-06-02 19:21:38,548 log 8308 13952 Bad Gateway: /order_otp_apps/
+ERROR 2025-06-02 19:21:38,555 basehttp 8308 13952 "GET /order_otp_apps/?phone_number=+919876543210 HTTP/1.1" 502 47
+ERROR 2025-06-02 19:22:32,517 log 8308 13952 Bad Gateway: /order_otp_apps/
+ERROR 2025-06-02 19:22:32,521 basehttp 8308 13952 "GET /order_otp_apps/?phone_number=+919876543210 HTTP/1.1" 502 47
+ERROR 2025-06-02 19:27:08,804 log 8308 10908 Bad Gateway: /order_otp_apps/
+ERROR 2025-06-02 19:27:08,813 basehttp 8308 10908 "GET /order_otp_apps/?phone_number=+919876543210 HTTP/1.1" 502 47
+INFO 2025-06-02 19:29:03,104 autoreload 8308 932 C:\Backend-Service\servicesapp\views.py changed, reloading.
+INFO 2025-06-02 19:29:06,405 autoreload 20592 11584 Watching for file changes with StatReloader
+INFO 2025-06-02 19:32:41,894 autoreload 20592 11584 C:\Backend-Service\servicesapp\views.py changed, reloading.
+INFO 2025-06-02 19:32:45,609 autoreload 14728 18768 Watching for file changes with StatReloader
+INFO 2025-06-02 19:33:48,402 autoreload 14728 18768 C:\Backend-Service\servicesapp\models.py changed, reloading.
+INFO 2025-06-02 19:33:50,743 autoreload 2372 17052 Watching for file changes with StatReloader
+INFO 2025-06-02 19:34:04,741 autoreload 2372 17052 C:\Backend-Service\servicesapp\serializers.py changed, reloading.
+INFO 2025-06-02 19:34:06,387 autoreload 9976 2808 Watching for file changes with StatReloader
+INFO 2025-06-02 19:37:02,959 autoreload 4044 20108 Watching for file changes with StatReloader
+INFO 2025-06-02 19:38:50,175 autoreload 4044 20108 C:\Backend-Service\servicesapp\views.py changed, reloading.
+INFO 2025-06-02 19:38:51,989 autoreload 17008 9532 Watching for file changes with StatReloader
+INFO 2025-06-02 19:39:56,537 autoreload 17008 9532 C:\Backend-Service\servicesapp\views.py changed, reloading.
+INFO 2025-06-02 19:39:58,541 autoreload 20776 10352 Watching for file changes with StatReloader
+INFO 2025-06-02 19:42:26,531 autoreload 4628 10144 Watching for file changes with StatReloader
+INFO 2025-06-02 19:43:45,665 autoreload 4628 10144 C:\Backend-Service\servicesapp\views.py changed, reloading.
+INFO 2025-06-02 19:43:48,026 autoreload 20600 22404 Watching for file changes with StatReloader
+INFO 2025-06-02 19:43:53,380 autoreload 5856 14276 Watching for file changes with StatReloader
+INFO 2025-06-02 19:45:13,420 autoreload 5856 14276 C:\Backend-Service\servicespro\settings.py changed, reloading.
