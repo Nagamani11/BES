@@ -6,6 +6,10 @@ import random
 import string
 from datetime import timedelta
 from django.core.validators import FileExtensionValidator
+from django.conf import settings
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 
 # OTP model for phone number verification
@@ -166,8 +170,16 @@ class WorkerProfile(models.Model):
 
 
 class Recharge(models.Model):
-    phone_number = models.CharField(max_length=15, blank=True, null=True)
+    TRANSACTION_TYPE_CHOICES = (
+        ('credit', 'Credit'),
+        ('debit', 'Debit'),
+    )
+
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
     amount = models.PositiveIntegerField(help_text="Amount in paise")
+    transaction_type = models.CharField(max_length=10,
+                                        choices=TRANSACTION_TYPE_CHOICES,
+                                        default='credit')
     is_paid = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -175,7 +187,7 @@ class Recharge(models.Model):
         phone = self.phone_number if self.phone_number else "No Phone"
         amount_in_rupees = self.amount / 100
         status = 'Paid' if self.is_paid else 'Unpaid'
-        return f"{phone} - ₹{amount_in_rupees} - {status}"
+        return f"{phone} - ₹{amount_in_rupees} - {self.transaction_type.capitalize()} - {status}"
 
 # payment API
 
@@ -224,30 +236,41 @@ class Order(models.Model):
     STATUS_CHOICES = (
         ('pending', 'Pending'),
         ('accepted', 'Accepted'),
+        ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
     )
 
-    customer_name = models.CharField(max_length=100)  # Name of the customer
-    service = models.CharField(max_length=100, default='unknown')
-    service_provider = models.ForeignKey(
-        'ServiceProvider',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
-    )
-    phone_number = models.CharField(max_length=15, null=True, blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES,
-                              default='pending')
+    booking_reference = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    customer_name = models.CharField(max_length=100, blank=True)
+    customer_phone = models.CharField(max_length=15)
+    service = models.CharField(max_length=100)
+    service_provider_mobile = models.CharField(max_length=15)
+    booking_date = models.DateTimeField(default=timezone.now)
+    service_date = models.DateField()
+    time = models.TimeField()
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     accepted_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
         null=True,
-        blank=True
+        blank=True,
+        related_name='accepted_orders'
     )
 
     def __str__(self):
-        return f"{self.customer_name} - {self.service} - {self.status}"
+        return f"Order {self.booking_reference} - {self.customer_phone} - {self.status}"
+
+    def save(self, *args, **kwargs):
+        if not self.service_provider_mobile:
+            # dynamic default from settings or any function you want here
+            self.service_provider_mobile = getattr(settings, 'DEFAULT_SERVICE_PROVIDER_MOBILE', '+919999999999')
+        super().save(*args, **kwargs)
+
+    class Meta:
+        ordering = ['-service_date', '-time']
 
 
 # Admin Email OTP
