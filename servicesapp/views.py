@@ -1,5 +1,4 @@
 from django.http import HttpResponseBadRequest, JsonResponse
-from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
@@ -9,7 +8,7 @@ from django.utils import timezone
 from rest_framework.permissions import AllowAny
 import random
 from twilio.rest import Client
-from .models import OTP, ServiceProvider
+from .models import OTP
 import logging
 from django.conf import settings
 import razorpay
@@ -157,18 +156,25 @@ client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID,
 @permission_classes([AllowAny])
 def get_balance(request):
     print("get_balance view called")  # Debug line
-    mobile_number = request.query_params.get('mobile_number')
+
+    mobile_number = request.query_params.get('mobile_number')  # Should include country code (e.g., +919876543210)
+
     if not mobile_number:
         return JsonResponse({'error': 'mobile_number is required'}, status=400)
 
-    try:
-        user = User.objects.get(username=mobile_number)
-        balance = Recharge.objects.filter(user=user, is_paid=True).aggregate(
-            total=Sum('amount'))['total'] or 0
-        return JsonResponse({'balance': balance})
-    except User.DoesNotExist:
-        return JsonResponse(
-            {'error': 'User with this mobile number not found'}, status=404)
+    # Calculate total credits
+    total_credit = Recharge.objects.filter(
+        phone_number=mobile_number, transaction_type='credit', is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    # Calculate total debits
+    total_debit = Recharge.objects.filter(
+        phone_number=mobile_number, transaction_type='debit', is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    balance = total_credit - total_debit
+
+    return JsonResponse({'balance': balance})
 
 
 @api_view(['POST'])
@@ -351,49 +357,167 @@ def payment_callback(request):
 # Get pending orders (notifications)
 
 
+logger = logging.getLogger(__name__)
+
+# Webhook endpoint
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def booking_webhook(request):
+    auth_header = request.headers.get('Authorization', '')
+    expected_token = f'Bearer {settings.WEBHOOK_API_KEY}'
+    
+    if auth_header != expected_token:
+        logger.warning(f"Unauthorized webhook attempt with token: {auth_header}")
+        return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    data = request.data
+    action = data.get('action')
+    booking_id = data.get('booking_id')
+
+    if not action or not booking_id:
+        return Response(
+            {'error': 'action and booking_id are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        if action == 'deleted':
+            Order.objects.filter(booking_reference=booking_id).delete()
+            return Response({'message': 'Order deleted'})
+
+        # Status mapping between booking and order
+        status_mapping = {
+            'Pending': 'pending',
+            'Confirmed': 'pending',  # Treat confirmed as pending in servicesapp
+            'Completed': 'completed',
+            'Cancelled': 'cancelled'
+        }
+
+        order_data = {
+            'booking_reference': booking_id,
+            'customer_phone': data.get('customer_phone'),
+            'service': data.get('subcategory_name', 'unknown'),
+            'service_provider_mobile': settings.DEFAULT_SERVICE_PROVIDER_MOBILE,
+            'booking_date': data.get('booking_date'),
+            'service_date': data.get('service_date'),
+            'time': data.get('time'),
+            'total_amount': data.get('total_amount'),
+            'status': status_mapping.get(data.get('status'), 'pending')
+        }
+
+        # Create or update order
+        order, created = Order.objects.update_or_create(
+            booking_reference=booking_id,
+            defaults=order_data
+        )
+
+        return Response({
+            'status': 'success',
+            'order_id': order.id,
+            'action': 'created' if created else 'updated'
+        })
+
+    except Exception as e:
+        logger.error(f"Webhook processing error: {str(e)}", exc_info=True)
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def get_pending_orders(request, provider_id):
-    print("DEBUG: View called for provider_id =", provider_id)
-    provider = get_object_or_404(ServiceProvider, id=provider_id)
-    orders = Order.objects.filter(service_provider=provider, status='pending')
+def get_pending_orders(request):
+    mobile_number = request.GET.get('mobile_number')
+    if not mobile_number:
+        return Response(
+            {"error": "mobile_number query parameter is required"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        # Make sure mobile_number format matches what is stored in DB
+        orders = Order.objects.filter(
+            service_provider_mobile=mobile_number,
+            status='pending'
+        ).order_by('-created_at')
+    except Exception as e:
+        logger.error(f"Error fetching orders for mobile {mobile_number}: {e}")
+        return Response(
+            {"error": "Failed to fetch orders."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
     serializer = OrderSerializer(orders, many=True)
     return Response(serializer.data)
 
-# Accept an order
-
-
-@csrf_exempt
-@api_view(['POST'])
-@permission_classes([AllowAny])  # Remove in production
-def accept_order(request, order_id):
-    try:
-        print("Incoming data:", request.data)
-        order = Order.objects.get(id=order_id)
-        order.status = 'accepted'
-        if not request.user.is_anonymous:  # Only assign if user is logged in
-            order.accepted_by = request.user
-        order.save()
-        return Response({'message': 'Order accepted.'}, status=200)
-    except Order.DoesNotExist:
-        return Response({'error': 'Order not found.'}, status=404)
-
-# Cancel an order
-
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def cancel_order(request, order_id):
-    try:
-        order = Order.objects.get(id=order_id)
-        order.status = 'cancelled'
-        order.save()
-        return Response({'message': 'Order cancelled.'},
-                        status=status.HTTP_200_OK)
-    except Order.DoesNotExist:
-        return Response({'error': 'Order not found.'},
-                        status=status.HTTP_404_NOT_FOUND)
+def accept_order(request):
+    order_id = request.data.get('order_id')
+    mobile_number = request.data.get('mobile_number')
 
+    if not order_id or not mobile_number:
+        return Response(
+            {'error': 'order_id and mobile_number are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        order = Order.objects.get(id=order_id, service_provider_mobile=mobile_number)
+    except Order.DoesNotExist:
+        return Response(
+            {'error': 'Order not found for this mobile number'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if order.status != 'pending':
+        return Response(
+            {'error': f'Order cannot be accepted because it is {order.status}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    order.status = 'accepted'
+    order.accepted_by = request.user
+    order.save()
+    
+    return Response(
+        {'message': 'Order accepted.'},
+        status=status.HTTP_200_OK
+    )
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def cancel_order(request):
+    order_id = request.data.get('order_id')
+    mobile_number = request.data.get('mobile_number')
+
+    if not order_id or not mobile_number:
+        return Response(
+            {'error': 'order_id and mobile_number are required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        order = Order.objects.get(id=order_id, service_provider_mobile=mobile_number)
+    except Order.DoesNotExist:
+        return Response(
+            {'error': 'Order not found for this mobile number'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if order.status not in ['pending', 'accepted']:
+        return Response(
+            {'error': f'Order cannot be cancelled because it is {order.status}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    order.status = 'cancelled'
+    order.save()
+    return Response(
+        {'message': 'Order cancelled.'},
+        status=status.HTTP_200_OK
+    )
 
 # Admin Email OTP APIs
 
