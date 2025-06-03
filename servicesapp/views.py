@@ -274,6 +274,7 @@ def create_payment(request):
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def payment_callback(request):
@@ -543,13 +544,11 @@ def reset_password(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_order_notifications(request):
-    phone_number = request.GET.get('phone_number')
-    if not phone_number:
-        return Response({"error": "Phone number is required"}, status=400)
-
-    print("Received phone number:", phone_number)
+    # No phone number filter
     notifications = Notification.objects.filter(
-        category='order', phone_number=phone_number).order_by('-created_at')
+        category='order'
+    ).order_by('-created_at')
+
     print("Notifications count:", notifications.count())
     serializer = NotificationSerializer(notifications, many=True)
     return Response(serializer.data)
