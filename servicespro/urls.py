@@ -35,11 +35,12 @@ urlpatterns = [
     path('create_payment/', views.create_payment, name='create_payment'),
     path('payment_callback/', views.payment_callback, name='payment_callback'),
     # Order APIs
-    path('get_pending_orders/<int:provider_id>/', views.get_pending_orders,
+    path('booking_webhook/', views.booking_webhook, name='booking_webhook'),
+    path('get_pending_orders/', views.get_pending_orders,
          name='get_pending_orders'),
-    path('accept_order/<int:order_id>/', views.accept_order,
+    path('accept_order/', views.accept_order,
          name='accept_order'),
-    path('cancel_order/<int:order_id>/', views.cancel_order,
+    path('cancel_order/', views.cancel_order,
          name='cancel_order'),
     # Admin Email OTP
     path('generate_password/', views.generate_password,
