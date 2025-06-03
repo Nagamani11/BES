@@ -360,17 +360,12 @@ def payment_callback(request):
 logger = logging.getLogger(__name__)
 
 # Webhook endpoint
+
+
 @csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def booking_webhook(request):
-    auth_header = request.headers.get('Authorization', '')
-    expected_token = f'Bearer {settings.WEBHOOK_API_KEY}'
-    
-    if auth_header != expected_token:
-        logger.warning(f"Unauthorized webhook attempt with token: {auth_header}")
-        return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
-
     data = request.data
     action = data.get('action')
     booking_id = data.get('booking_id')
@@ -398,7 +393,6 @@ def booking_webhook(request):
             'booking_reference': booking_id,
             'customer_phone': data.get('customer_phone'),
             'service': data.get('subcategory_name', 'unknown'),
-            'service_provider_mobile': settings.DEFAULT_SERVICE_PROVIDER_MOBILE,
             'booking_date': data.get('booking_date'),
             'service_date': data.get('service_date'),
             'time': data.get('time'),
@@ -424,6 +418,8 @@ def booking_webhook(request):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_pending_orders(request):
