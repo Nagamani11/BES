@@ -202,42 +202,41 @@ def create_recharge(request):
     }, status=200)
 
 
-# Payment APIs
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_payment(request):
     try:
         data = request.data
-        amount = int(data['amount'])  # in paise
-        payment_method = data.get('payment_method', 'UPI')
-        raw_phone = data.get('phone_number')
 
+        # Validate and parse amount
+        try:
+            amount = int(data['amount'])  # amount in paise
+        except (KeyError, ValueError):
+            return JsonResponse({'success': False, 'error': 'Valid amount (in paise) is required'}, status=400)
+
+        # Get and validate phone number
+        raw_phone = data.get('phone_number')
         if not raw_phone:
             return JsonResponse({'success': False, 'error': 'phone_number is required'}, status=400)
 
-        # Normalize phone number: remove all non-digit characters
+        # Normalize phone number
         normalized_phone = re.sub(r'\D', '', raw_phone)
-
-        # Strip country code if present
         if normalized_phone.startswith('91') and len(normalized_phone) == 12:
             normalized_phone = normalized_phone[2:]
-
         if len(normalized_phone) != 10:
             return JsonResponse({'success': False, 'error': 'Invalid phone number format. Expected 10 digits.'}, status=400)
 
         # Validate payment method
-        if payment_method not in dict(RechargeTransaction.PAYMENT_METHOD_CHOICES):
-            valid_methods = ', '.join(dict(RechargeTransaction.PAYMENT_METHOD_CHOICES).keys())
+        payment_method = data.get('payment_method', 'UPI')
+        valid_methods = dict(RechargeTransaction.PAYMENT_METHOD_CHOICES)
+        if payment_method not in valid_methods:
             return JsonResponse({
                 'success': False,
-                'error': f'Invalid payment method. Choose from: {valid_methods}'
+                'error': f'Invalid payment method. Choose from: {", ".join(valid_methods.keys())}'
             }, status=400)
 
-        # Get user
-        try:
-            user = User.objects.get(username=normalized_phone)
-        except User.DoesNotExist:
-            return JsonResponse({'success': False, 'error': 'User with this phone number not found'}, status=404)
+        # Get user if exists
+        user = User.objects.filter(username=normalized_phone).first()
 
         # Create Razorpay order
         order_data = {
@@ -245,7 +244,7 @@ def create_payment(request):
             'currency': 'INR',
             'payment_capture': 1,
             'notes': {
-                'user_id': str(user.id),
+                'user_id': str(user.id) if user else 'anonymous',
                 'phone_number': normalized_phone
             }
         }
@@ -255,12 +254,13 @@ def create_payment(request):
         RechargeTransaction.objects.create(
             user=user,
             phone_number=normalized_phone,
-            amount=amount / 100,
+            amount=amount / 100,  # Convert to rupees for storage
             razorpay_order_id=razorpay_order['id'],
             payment_method=payment_method,
             status='Pending'
         )
 
+        # Response
         return JsonResponse({
             'success': True,
             'order_id': razorpay_order['id'],
@@ -271,13 +271,8 @@ def create_payment(request):
             'phone_number': normalized_phone
         }, status=201)
 
-    except KeyError as e:
-        return JsonResponse({'success': False, 'error': f'Missing parameter: {str(e)}'}, status=400)
-    except ValueError:
-        return JsonResponse({'success': False, 'error': 'Invalid amount value'}, status=400)
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
-
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
