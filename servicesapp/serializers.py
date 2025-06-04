@@ -63,9 +63,8 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = [
-            'id', 'booking_reference', 'customer_name', 'customer_phone',
-            'service', 'service_provider_mobile', 'booking_date',
-            'service_date', 'time', 'total_amount', 'status',
+            'id', 'customer_phone', 'subcategory_name', 'booking_date',
+            'service_date', 'time', 'total_amount', 'status', 'full_address',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
