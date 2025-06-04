@@ -234,43 +234,28 @@ class ServiceProvider(models.Model):
 
 class Order(models.Model):
     STATUS_CHOICES = (
-        ('pending', 'Pending'),
-        ('accepted', 'Accepted'),
-        ('completed', 'Completed'),
-        ('cancelled', 'Cancelled'),
+        ('Pending', 'Pending'),
+        ('Confirmed', 'Confirmed'),
+        ('Completed', 'Completed'),
+        ('Cancelled', 'Cancelled'),
     )
 
-    booking_reference = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    customer_name = models.CharField(max_length=100, blank=True)
     customer_phone = models.CharField(max_length=15)
-    service = models.CharField(max_length=100)
-    service_provider_mobile = models.CharField(max_length=15)
-    booking_date = models.DateTimeField(default=timezone.now)
+    subcategory_name = models.CharField(max_length=100, blank=True)
+    booking_date = models.DateTimeField()
     service_date = models.DateField()
     time = models.TimeField()
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    accepted_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='accepted_orders'
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    full_address = models.TextField(blank=True, null=True)
+    location_id = models.IntegerField(blank=True, null=True)  # Changed from location to location_id
 
-    def __str__(self):
-        return f"Order {self.booking_reference} - {self.customer_phone} - {self.status}"
-
-    def save(self, *args, **kwargs):
-        if not self.service_provider_mobile:
-            # dynamic default from settings or any function you want here
-            self.service_provider_mobile = getattr(settings, 'DEFAULT_SERVICE_PROVIDER_MOBILE', '+919999999999')
-        super().save(*args, **kwargs)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
 
     class Meta:
-        ordering = ['-service_date', '-time']
+        db_table = 'otp_app_booking'  # Using the shared table
+        managed = False  # Don't create migrations for this model
 
 
 # Admin Email OTP
