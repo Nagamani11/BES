@@ -26,6 +26,10 @@ from django.db.models import Sum
 from .models import Notification
 from .serializers import NotificationSerializer
 import re
+from django.db import connection
+
+
+logger = logging.getLogger(__name__)
 
 
 def home(request):
@@ -423,28 +427,28 @@ def booking_webhook(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_pending_orders(request):
-    mobile_number = request.GET.get('mobile_number')
-    if not mobile_number:
-        return Response(
-            {"error": "mobile_number query parameter is required"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    try:
-        # Make sure mobile_number format matches what is stored in DB
-        orders = Order.objects.filter(
-            service_provider_mobile=mobile_number,
-            status='pending'
-        ).order_by('-created_at')
-    except Exception as e:
-        logger.error(f"Error fetching orders for mobile {mobile_number}: {e}")
-        return Response(
-            {"error": "Failed to fetch orders."},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-    
-    serializer = OrderSerializer(orders, many=True)
-    return Response(serializer.data)
+    # Fetch all orders
+    orders = Order.objects.all()
+
+    # List of fields without 'location'
+    fields = [
+        'id',
+        'customer_phone',
+        'subcategory_name',
+        'booking_date',
+        'service_date',
+        'time',
+        'total_amount',
+        'status',
+        'full_address',
+        'location_id',   # include location_id if needed
+        'created_at',
+        'updated_at',
+    ]
+
+    orders_list = list(orders.values(*fields))
+
+    return JsonResponse(orders_list, safe=False)
 
 
 @api_view(['POST'])
