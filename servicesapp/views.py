@@ -427,28 +427,30 @@ def booking_webhook(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_pending_orders(request):
-    # Fetch all orders
-    orders = Order.objects.all()
+    try:
+        # Only pending orders
+        orders = Order.objects.filter(status='Pending').order_by('-booking_date')
 
-    # List of fields without 'location'
-    fields = [
-        'id',
-        'customer_phone',
-        'subcategory_name',
-        'booking_date',
-        'service_date',
-        'time',
-        'total_amount',
-        'status',
-        'full_address',
-        'location_id',   # include location_id if needed
-        'created_at',
-        'updated_at',
-    ]
+        # Define fields existing in Order model (exclude 'location_id')
+        fields = [
+            'id',
+            'customer_phone',
+            'subcategory_name',
+            'booking_date',
+            'service_date',
+            'time',
+            'total_amount',
+            'status',
+            'full_address',
+            'created_at',
+            'updated_at',
+        ]
 
-    orders_list = list(orders.values(*fields))
+        orders_list = list(orders.values(*fields))
+        return JsonResponse(orders_list, safe=False)
 
-    return JsonResponse(orders_list, safe=False)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 @api_view(['POST'])
@@ -464,27 +466,30 @@ def accept_order(request):
         )
     
     try:
-        order = Order.objects.get(id=order_id, service_provider_mobile=mobile_number)
+        # Since model does NOT have service_provider_mobile, 
+        # we assume customer_phone is the phone to match
+        order = Order.objects.get(id=order_id, customer_phone=mobile_number)
     except Order.DoesNotExist:
         return Response(
             {'error': 'Order not found for this mobile number'},
             status=status.HTTP_404_NOT_FOUND
         )
 
-    if order.status != 'pending':
+    if order.status != 'Pending':
         return Response(
             {'error': f'Order cannot be accepted because it is {order.status}'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    order.status = 'accepted'
-    order.accepted_by = request.user
+    # Update status to Confirmed (instead of 'accepted' which isn't in choices)
+    order.status = 'Confirmed'
     order.save()
     
     return Response(
         {'message': 'Order accepted.'},
         status=status.HTTP_200_OK
     )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -499,25 +504,27 @@ def cancel_order(request):
         )
     
     try:
-        order = Order.objects.get(id=order_id, service_provider_mobile=mobile_number)
+        order = Order.objects.get(id=order_id, customer_phone=mobile_number)
     except Order.DoesNotExist:
         return Response(
             {'error': 'Order not found for this mobile number'},
             status=status.HTTP_404_NOT_FOUND
         )
 
-    if order.status not in ['pending', 'accepted']:
+    if order.status not in ['Pending', 'Confirmed']:
         return Response(
             {'error': f'Order cannot be cancelled because it is {order.status}'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    order.status = 'cancelled'
+    order.status = 'Cancelled'
     order.save()
+    
     return Response(
         {'message': 'Order cancelled.'},
         status=status.HTTP_200_OK
     )
+
 
 # Admin Email OTP APIs
 
