@@ -457,73 +457,50 @@ def get_pending_orders(request):
 @permission_classes([AllowAny])
 def accept_order(request):
     order_id = request.data.get('order_id')
-    mobile_number = request.data.get('mobile_number')
 
-    if not order_id or not mobile_number:
-        return Response(
-            {'error': 'order_id and mobile_number are required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
+    if not order_id:
+        return Response({'error': 'order_id is required'}, status=400)
+
     try:
-        # Since model does NOT have service_provider_mobile, 
-        # we assume customer_phone is the phone to match
-        order = Order.objects.get(id=order_id, customer_phone=mobile_number)
+        order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found for this mobile number'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({'error': 'Order not found'}, status=404)
 
     if order.status != 'Pending':
-        return Response(
-            {'error': f'Order cannot be accepted because it is {order.status}'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({'error': f'Order is already {order.status}'}, status=400)
 
-    # Update status to Confirmed (instead of 'accepted' which isn't in choices)
+    # Mark the order as accepted
     order.status = 'Confirmed'
+    order.accepted_by = 'provider_1'  # Replace with actual provider logic if needed
+    order.updated_at = timezone.now()
     order.save()
-    
-    return Response(
-        {'message': 'Order accepted.'},
-        status=status.HTTP_200_OK
-    )
+
+    return Response({'message': 'Order accepted successfully'})
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def cancel_order(request):
     order_id = request.data.get('order_id')
-    mobile_number = request.data.get('mobile_number')
 
-    if not order_id or not mobile_number:
-        return Response(
-            {'error': 'order_id and mobile_number are required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
+    if not order_id:
+        return Response({'error': 'order_id is required'}, status=400)
+
     try:
-        order = Order.objects.get(id=order_id, customer_phone=mobile_number)
+        order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
-        return Response(
-            {'error': 'Order not found for this mobile number'},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({'error': 'Order not found'}, status=404)
 
-    if order.status not in ['Pending', 'Confirmed']:
-        return Response(
-            {'error': f'Order cannot be cancelled because it is {order.status}'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    if order.status != 'Confirmed':
+        return Response({'error': f'Cannot cancel an order that is {order.status}'}, status=400)
 
-    order.status = 'Cancelled'
+    # Reset order for next person
+    order.status = 'Pending'
+    order.accepted_by = None
+    order.updated_at = timezone.now()
     order.save()
-    
-    return Response(
-        {'message': 'Order cancelled.'},
-        status=status.HTTP_200_OK
-    )
+
+    return Response({'message': 'Order cancelled and now available to others'})
 
 
 # Admin Email OTP APIs
