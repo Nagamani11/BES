@@ -248,7 +248,6 @@ class Order(models.Model):
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
     full_address = models.TextField(blank=True, null=True)
-    location_id = models.IntegerField(blank=True, null=True)  # Changed from location to location_id
 
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
