@@ -8,13 +8,12 @@ from django.utils import timezone
 from rest_framework.permissions import AllowAny
 import random
 from twilio.rest import Client
-from .models import OTP
+from .models import OTP, WorkerProfile
 import logging
 from django.conf import settings
 import razorpay
 from .models import RechargeTransaction
 from .models import Order
-from .serializers import OrderSerializer
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.models import User
 from .models import PasswordResetOTP
@@ -26,7 +25,9 @@ from django.db.models import Sum
 from .models import Notification
 from .serializers import NotificationSerializer
 import re
-from django.db import connection
+from django.db.models import Q
+from .serializers import OrderSerializer
+from .models import UserProfile
 
 
 logger = logging.getLogger(__name__)
@@ -95,28 +96,21 @@ def generate_otp(request):
 # OTP Verification API
 
 
-@api_view(['GET', 'POST'])
+@api_view(['POST'])
 @permission_classes([AllowAny])
 def verify_otp(request):
-    if request.method == 'GET':
-        return Response({"message": "Send a POST request with 'phone_number' "
-                        "and 'otp_code' to verify."})
-
     phone = request.data.get("phone_number")
-    user_otp = request.data.get("otp_code")  # Changed 'otp' to 'otp_code'
+    user_otp = request.data.get("otp_code")
 
     if not phone or not user_otp:
-        return Response({"error": "Phone number and OTP are required"},
-                        status=400)
+        return Response({"error": "Phone number and OTP are required"}, status=400)
 
     phone = phone.strip().replace(' ', '')
     if not phone.startswith('+'):
-        return Response({"error": "Phone number must start with country code "
-                         "(e.g., +91)"}, status=400)
+        return Response({"error": "Phone number must start with country code (e.g., +91)"}, status=400)
 
     try:
         otp_entry = OTP.objects.filter(phone_number=phone).first()
-
         if not otp_entry:
             return Response({"error": "OTP not found"}, status=400)
 
@@ -124,17 +118,23 @@ def verify_otp(request):
             otp_entry.delete()
             return Response({"error": "OTP expired"}, status=400)
 
-        if otp_entry.otp_code != user_otp:  # Fixed field name here as well
+        if otp_entry.otp_code != user_otp:
             return Response({"error": "Incorrect OTP"}, status=400)
 
-        # Valid OTP - delete it and confirm success
         otp_entry.delete()
 
-        return Response({"message": "OTP verified successfully"}, status=200)
+        # Check if user already exists
+        user, created = UserProfile.objects.get_or_create(phone_number=phone)
+
+        # `created` is True if user is new, False if already exists
+        return Response({
+            "message": "OTP verified successfully",
+            "first_login": created
+        }, status=200)
 
     except Exception as e:
-        return Response({"error": "Something went wrong", "details": str(e)},
-                        status=500)
+        return Response({"error": "Something went wrong", "details": str(e)}, status=500)
+
 
 
 @api_view(['POST'])
@@ -161,7 +161,7 @@ client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID,
 def get_balance(request):
     print("get_balance view called")  # Debug line
 
-    mobile_number = request.query_params.get('mobile_number')  # Should include country code (e.g., +919876543210)
+    mobile_number = request.query_params.get('mobile_number')
 
     if not mobile_number:
         return JsonResponse({'error': 'mobile_number is required'}, status=400)
@@ -222,19 +222,23 @@ def create_payment(request):
         try:
             amount = int(data['amount'])  # amount in paise
         except (KeyError, ValueError):
-            return JsonResponse({'success': False, 'error': 'Valid amount (in paise) is required'}, status=400)
+            return JsonResponse(
+                {'success': False, 'error': 'Valid amount (in paise) is required'}, status=400)
 
         # Get and validate phone number
         raw_phone = data.get('phone_number')
         if not raw_phone:
-            return JsonResponse({'success': False, 'error': 'phone_number is required'}, status=400)
+            return JsonResponse(
+                {'success': False, 'error': 'phone_number is required'},
+                status=400)
 
         # Normalize phone number
         normalized_phone = re.sub(r'\D', '', raw_phone)
         if normalized_phone.startswith('91') and len(normalized_phone) == 12:
             normalized_phone = normalized_phone[2:]
         if len(normalized_phone) != 10:
-            return JsonResponse({'success': False, 'error': 'Invalid phone number format. Expected 10 digits.'}, status=400)
+            return JsonResponse(
+                {'success': False, 'error': 'Invalid phone number format. Expected 10 digits.'}, status=400)
 
         # Validate payment method
         payment_method = data.get('payment_method', 'UPI')
@@ -360,68 +364,54 @@ def payment_callback(request):
 
 # Get pending orders (notifications)
 
+# Keyword mapping for matching orders to worker types 
 
-logger = logging.getLogger(__name__)
+WORK_TYPE_KEYWORDS = {
+    'daily_helpers': ['daily helper', 'helper'],
+    'cooking_cleaning': ['cooking', 'cleaning', 'dish washing'],
+    'drivers': ['driver', 'rental car'],
+    'playzone': ['playzone'],
+    'care': ['childcare', 'elder care', 'special needs'],
+    'petcare': ['dog walker', 'pet groomer', 'pet sitter'],
+    'beauty_salon': ['makeup', 'mehndi', 'nail art', 'eyebrows'],
+    'electrician': ['wiring', 'fan', 'light', 'appliance'],
+    'tutors': ['tutor', 'english', 'java', 'python', 'web dev'],
+    'nursing': ['injection', 'wound', 'bp', 'diabetes'],
+    'plumber': ['leak', 'tap', 'drainage', 'water tank'],
+    'decorators': ['decorator', 'birthday', 'party'],
+}
 
-# Webhook endpoint
+
+def normalize_phone(phone):
+    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
 
 
-@csrf_exempt
-@api_view(['POST'])
+@api_view(['GET'])
 @permission_classes([AllowAny])
-def booking_webhook(request):
-    data = request.data
-    action = data.get('action')
-    booking_id = data.get('booking_id')
+def worker_orders(request):
+    phone = request.GET.get('phone')
+    if not phone:
+        return Response({"error": "Phone number is required"}, status=400)
 
-    if not action or not booking_id:
-        return Response(
-            {'error': 'action and booking_id are required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    normalized_phone = normalize_phone(phone)
 
     try:
-        if action == 'deleted':
-            Order.objects.filter(booking_reference=booking_id).delete()
-            return Response({'message': 'Order deleted'})
+        worker = WorkerProfile.objects.get(phone_number__endswith=normalized_phone)
+    except WorkerProfile.DoesNotExist:
+        return Response({"error": "Worker profile not found"}, status=404)
 
-        # Status mapping between booking and order
-        status_mapping = {
-            'Pending': 'pending',
-            'Confirmed': 'pending',  # Treat confirmed as pending in servicesapp
-            'Completed': 'completed',
-            'Cancelled': 'cancelled'
-        }
+    keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
+    if not keywords:
+        return Response({"message": "No keywords mapped for this work type."}, status=204)
 
-        order_data = {
-            'booking_reference': booking_id,
-            'customer_phone': data.get('customer_phone'),
-            'service': data.get('subcategory_name', 'unknown'),
-            'booking_date': data.get('booking_date'),
-            'service_date': data.get('service_date'),
-            'time': data.get('time'),
-            'total_amount': data.get('total_amount'),
-            'status': status_mapping.get(data.get('status'), 'pending')
-        }
+    query = Q()
+    for keyword in keywords:
+        query |= Q(subcategory_name__icontains=keyword)
 
-        # Create or update order
-        order, created = Order.objects.update_or_create(
-            booking_reference=booking_id,
-            defaults=order_data
-        )
+    matched_orders = Order.objects.filter(query).order_by('-created_at')
 
-        return Response({
-            'status': 'success',
-            'order_id': order.id,
-            'action': 'created' if created else 'updated'
-        })
-
-    except Exception as e:
-        logger.error(f"Webhook processing error: {str(e)}", exc_info=True)
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    serializer = OrderSerializer(matched_orders, many=True)
+    return Response(serializer.data)
 
 
 @api_view(['GET'])
@@ -457,25 +447,41 @@ def get_pending_orders(request):
 @permission_classes([AllowAny])
 def accept_order(request):
     order_id = request.data.get('order_id')
+    phone = request.data.get('phone')
 
-    if not order_id:
-        return Response({'error': 'order_id is required'}, status=400)
+    print("Received order_id:", order_id)
+    print("Received phone:", phone)
+
+    if not order_id or not phone:
+        return Response({'error': 'order_id and phone are required'}, status=400)
+
+    normalized_phone = normalize_phone(phone)
+
+    try:
+        worker = WorkerProfile.objects.get(phone_number__endswith=normalized_phone)
+    except WorkerProfile.DoesNotExist:
+        print("Worker not found")
+        return Response({'error': 'Worker not found'}, status=404)
 
     try:
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
+        print("Order not found")
         return Response({'error': 'Order not found'}, status=404)
 
     if order.status != 'Pending':
-        return Response({'error': f'Order is already {order.status}'}, status=400)
+        print("Order already accepted")
+        return Response({'error': f'Order already {order.status}'}, status=400)
 
-    # Mark the order as accepted
     order.status = 'Confirmed'
-    order.accepted_by = 'provider_1'  # Replace with actual provider logic if needed
+    order.accepted_by = worker.phone_number
     order.updated_at = timezone.now()
-    order.save()
 
-    return Response({'message': 'Order accepted successfully'})
+    print("Saving order...")
+    order.save()
+    print("Order saved!")
+
+    return Response({'message': 'Order accepted and saved to database'})
 
 
 @api_view(['POST'])
@@ -492,7 +498,9 @@ def cancel_order(request):
         return Response({'error': 'Order not found'}, status=404)
 
     if order.status != 'Confirmed':
-        return Response({'error': f'Cannot cancel an order that is {order.status}'}, status=400)
+        return Response(
+            {'error': f'Cannot cancel an order that is {order.status}'},
+            status=400)
 
     # Reset order for next person
     order.status = 'Pending'
