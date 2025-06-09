@@ -27,6 +27,7 @@ urlpatterns = [
     # generate & verify otp
     path('generate_otp/', views.generate_otp, name='generate_otp'),
     path('verify_otp/', views.verify_otp, name='verify_otp'),
+    # Form API
     path('worker_form/', views.worker_form, name='worker_form'),
     # Recharge APIs
     path('get_balance/', views.get_balance, name='get_balance'),
@@ -35,7 +36,7 @@ urlpatterns = [
     path('create_payment/', views.create_payment, name='create_payment'),
     path('payment_callback/', views.payment_callback, name='payment_callback'),
     # Order APIs
-    path('booking_webhook/', views.booking_webhook, name='booking_webhook'),
+    path('worker_orders/', views.worker_orders, name='worker_orders'),
     path('get_pending_orders/', views.get_pending_orders,
          name='get_pending_orders'),
     path('accept_order/', views.accept_order,
