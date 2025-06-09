@@ -14,7 +14,6 @@ from django.conf import settings
 import razorpay
 from .models import RechargeTransaction
 from .models import Order
-from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.models import User
 from .models import PasswordResetOTP
 from .serializers import GenerateOTPSerializer
@@ -28,6 +27,7 @@ import re
 from django.db.models import Q
 from .serializers import OrderSerializer
 from .models import UserProfile
+from django.db import connection
 
 
 logger = logging.getLogger(__name__)
@@ -134,7 +134,6 @@ def verify_otp(request):
 
     except Exception as e:
         return Response({"error": "Something went wrong", "details": str(e)}, status=500)
-
 
 
 @api_view(['POST'])
@@ -449,9 +448,6 @@ def accept_order(request):
     order_id = request.data.get('order_id')
     phone = request.data.get('phone')
 
-    print("Received order_id:", order_id)
-    print("Received phone:", phone)
-
     if not order_id or not phone:
         return Response({'error': 'order_id and phone are required'}, status=400)
 
@@ -460,28 +456,26 @@ def accept_order(request):
     try:
         worker = WorkerProfile.objects.get(phone_number__endswith=normalized_phone)
     except WorkerProfile.DoesNotExist:
-        print("Worker not found")
         return Response({'error': 'Worker not found'}, status=404)
 
     try:
         order = Order.objects.get(id=order_id)
     except Order.DoesNotExist:
-        print("Order not found")
         return Response({'error': 'Order not found'}, status=404)
 
     if order.status != 'Pending':
-        print("Order already accepted")
         return Response({'error': f'Order already {order.status}'}, status=400)
 
+    # Update order fields
     order.status = 'Confirmed'
-    order.accepted_by = worker.phone_number
+    # If your Order model has accepted_by field:
+    order.accepted_by = worker.phone_number  
     order.updated_at = timezone.now()
 
-    print("Saving order...")
     order.save()
-    print("Order saved!")
+    print("After save")
 
-    return Response({'message': 'Order accepted and saved to database'})
+    return Response({'message': 'Order accepted and saved'})
 
 
 @api_view(['POST'])
@@ -499,16 +493,37 @@ def cancel_order(request):
 
     if order.status != 'Confirmed':
         return Response(
-            {'error': f'Cannot cancel an order that is {order.status}'},
+            {'error': f'Cannot cancel an order that is {order.status}'}, 
             status=400)
 
-    # Reset order for next person
+    # Get the phone of the person canceling (if needed to avoid reassigning to same person)
+    cancelled_by = order.accepted_by
+
+    # Cancel the order and reset its status
     order.status = 'Pending'
     order.accepted_by = None
     order.updated_at = timezone.now()
     order.save()
 
-    return Response({'message': 'Order cancelled and now available to others'})
+    # Find another eligible worker based on subcategory_name
+    next_worker = WorkerProfile.objects.filter(
+        work_type=order.subcategory_name
+    ).exclude(phone_number=cancelled_by).first()
+
+    if next_worker:
+        # Reassign order
+        order.status = 'Confirmed'
+        order.accepted_by = next_worker.phone_number
+        order.updated_at = timezone.now()
+        order.save()
+
+        return Response({
+            'message': f'Order cancelled and reassigned to {next_worker.full_name} ({next_worker.phone_number})'
+        })
+
+    return Response({
+        'message': 'Order cancelled. No eligible worker found. Order remains open for others.'
+    })
 
 
 # Admin Email OTP APIs
