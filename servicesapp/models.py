@@ -257,9 +257,11 @@ class Order(models.Model):
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
 
+    accepted_by = models.CharField(max_length=15, null=True, blank=True)
+
     class Meta:
         db_table = 'otp_app_booking'  # Using the shared table
-        managed = False  # Don't create migrations for this model
+        managed = True
 
 
 # Admin Email OTP
@@ -298,9 +300,51 @@ class Notification(models.Model):
     title = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=15)
     message = models.TextField()
-    order = models.ForeignKey(Order, null=True, blank=True,
-                              on_delete=models.CASCADE)
+    order = models.ForeignKey('Orders', null=True, blank=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.title
+
+
+# servicesapp/models.py
+
+class Booking(models.Model):
+    # Read-only model mapping to otp_app_booking
+    customer_phone = models.CharField(max_length=15)
+    subcategory_name = models.CharField(max_length=100, blank=True)
+    booking_date = models.DateTimeField()
+    service_date = models.DateField()
+    time = models.TimeField()
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=20)
+    full_address = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        db_table = 'otp_app_booking'
+        managed = False
+
+
+class Orders(models.Model):
+    STATUS_CHOICES = (
+        ('Pending', 'Pending'),
+        ('Confirmed', 'Confirmed'),
+        ('Completed', 'Completed'),
+        ('Cancelled', 'Cancelled'),
+    )
+
+    customer_phone = models.CharField(max_length=15)
+    subcategory_name = models.CharField(max_length=100, blank=True)
+    booking_date = models.DateTimeField()
+    service_date = models.DateField()
+    time = models.TimeField()
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    full_address = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    def __str__(self):
+        return f"Orders #{self.id} - {self.status}"
