@@ -48,6 +48,11 @@ urlpatterns = [
          name='generate_password'),
     path('reset_password/', views.reset_password, name='reset_password'),
     path('admin_login/', views.admin_login, name='admin_login'),
-    path('get_order_notifications/', views.get_order_notifications,
-         name='get_order_notifications'),
+    path('notifications/', views.notifications,
+         name='notifications'),
+    path('copy_booking_order/', views.copy_booking_order,
+         name='copy_booking_order'),
+    path('workers_orders/', views.workers_orders, name='workers_orders'),
+    path('worker_job_action/', views.worker_job_action,
+         name='worker_job_action'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
