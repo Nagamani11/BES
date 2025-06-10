@@ -182,7 +182,8 @@ class Recharge(models.Model):
     )
 
     phone_number = models.CharField(max_length=20, blank=True, null=True)
-    amount = models.PositiveIntegerField(help_text="Amount in paise")
+    amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                  help_text="Amount in rupees")
     transaction_type = models.CharField(max_length=10,
                                         choices=TRANSACTION_TYPE_CHOICES,
                                         default='credit')
@@ -194,6 +195,7 @@ class Recharge(models.Model):
         amount_in_rupees = self.amount / 100
         status = 'Paid' if self.is_paid else 'Unpaid'
         return f"{phone} - ₹{amount_in_rupees} - {self.transaction_type.capitalize()} - {status}"
+
 
 # payment API
 
