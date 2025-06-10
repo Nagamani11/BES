@@ -3,7 +3,7 @@ from .models import WorkerProfile
 from .models import OTP
 from .models import RechargeTransaction, Order, Recharge
 from .models import Notification
-
+from .models import Orders, Booking
 # OTP serializers
 
 
@@ -89,4 +89,19 @@ class VerifyOTPSerializer(serializers.Serializer):
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
+        fields = '__all__'
+
+
+# serializers.py
+
+
+class OrdersSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Orders
+        fields = '__all__'
+
+
+class BookingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Booking
         fields = '__all__'
