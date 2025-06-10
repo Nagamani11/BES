@@ -164,25 +164,26 @@ client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID,
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_balance(request):
-    print("get_balance view called")  # Debug line
-
     mobile_number = request.query_params.get('mobile_number')
 
     if not mobile_number:
         return JsonResponse({'error': 'mobile_number is required'}, status=400)
 
-    # Calculate total credits
+    normalized_phone = normalize_phone(mobile_number)
+
     total_credit = Recharge.objects.filter(
-        phone_number=mobile_number, transaction_type='credit', is_paid=True
+        phone_number__endswith=normalized_phone,
+        transaction_type='credit',
+        is_paid=True
     ).aggregate(total=Sum('amount'))['total'] or 0
 
-    # Calculate total debits
     total_debit = Recharge.objects.filter(
-        phone_number=mobile_number, transaction_type='debit', is_paid=True
+        phone_number__endswith=normalized_phone,
+        transaction_type='debit',
+        is_paid=True
     ).aggregate(total=Sum('amount'))['total'] or 0
 
-    balance = total_credit - total_debit
-
+    balance = round(total_credit - total_debit, 2)
     return JsonResponse({'balance': balance})
 
 
@@ -993,3 +994,40 @@ def worker_job_action(request):
             return Response({"error": "Order not found"}, status=404)
 
     return Response({"error": "Invalid action"}, status=400)
+
+
+
+
+# to display in orders 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_accepted_orders(request):
+    worker_phone = request.query_params.get('phone')
+    
+    if not worker_phone:
+        return Response({"error": "Phone number is required"}, status=400)
+    
+    try:
+        # Get orders that are either Confirmed or Completed
+        orders = Orders.objects.filter(
+            Q(status='Confirmed') | Q(status='Completed')
+        ).order_by('-created_at')
+        
+        results = []
+        for order in orders:
+            results.append({
+                "order_id": order.id,
+                "subcategory_name": order.subcategory_name,
+                "customer_phone": order.customer_phone,
+                "status": order.status,
+                "service_date": order.service_date.strftime("%Y-%m-%d"),
+                "time": order.time.strftime("%H:%M"),
+                "total_amount": str(order.total_amount),
+                "full_address": order.full_address,
+                "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            })
+            
+        return Response({"data": results})
+    
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
