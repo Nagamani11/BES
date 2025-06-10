@@ -929,6 +929,7 @@ def worker_job_action(request):
                 "service_date": obj.service_date,
                 "created_at": obj.created_at,
                 "total_amount": str(obj.total_amount),
+                "full_address": obj.full_address
             })
         return Response({"data": results})
 
