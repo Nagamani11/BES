@@ -55,4 +55,6 @@ urlpatterns = [
     path('workers_orders/', views.workers_orders, name='workers_orders'),
     path('worker_job_action/', views.worker_job_action,
          name='worker_job_action'),
+    path('get_accepted_orders/', views.get_accepted_orders,
+         name='get_accepted_orders'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
