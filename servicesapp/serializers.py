@@ -56,19 +56,6 @@ class RechargeTransactionSerializer(serializers.ModelSerializer):
         validated_data['status'] = 'Pending'
         return super().create(validated_data)
 
-# Order APIs
-
-
-class OrderSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Order
-        fields = [
-            'id', 'customer_phone', 'subcategory_name', 'booking_date',
-            'service_date', 'time', 'total_amount', 'status', 'full_address',
-            'created_at', 'updated_at'
-        ]
-        read_only_fields = ['created_at', 'updated_at']
-
 
 # Admin Email OTP serializer
 
