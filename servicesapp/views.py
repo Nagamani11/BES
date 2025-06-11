@@ -214,7 +214,6 @@ def create_recharge(request):
     }, status=200)
 
 
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_payment(request):
@@ -223,11 +222,11 @@ def create_payment(request):
 
         # Amount in rupees (expected from frontend)
         try:
-            rupee_amount = float(data['amount'])  # e.g. 100
+            rupee_amount = float(data['amount'])  # e.g. 100.0
         except (KeyError, ValueError):
             return JsonResponse({'success': False, 'error': 'Valid amount (in rupees) is required'}, status=400)
 
-        amount_paise = int(rupee_amount * 100)  # Razorpay expects paise
+        amount_paise = int(rupee_amount * 100)  # Razorpay expects amount in paise
 
         # Normalize phone number
         raw_phone = data.get('phone_number')
@@ -249,9 +248,9 @@ def create_payment(request):
         # Optional: Get user
         user = User.objects.filter(username=normalized_phone).first()
 
-        # Create Razorpay order
+        # 1. Create Razorpay order
         order_data = {
-            'amount': amount_paise,  # in paise
+            'amount': amount_paise,
             'currency': 'INR',
             'payment_capture': 1,
             'notes': {
@@ -261,14 +260,22 @@ def create_payment(request):
         }
         razorpay_order = client.order.create(order_data)
 
-        # Save as pending transaction in ₹
+        # 2. Save transaction as SUCCESS (payment is considered completed here)
         RechargeTransaction.objects.create(
             user=user,
             phone_number=normalized_phone,
-            amount=rupee_amount,  # Store in ₹
+            amount=rupee_amount,
             razorpay_order_id=razorpay_order['id'],
             payment_method=payment_method,
-            status='Pending'
+            status='Success'  # ✅ Marked as Success directly
+        )
+
+        # 3. Add to Recharge table as credit
+        Recharge.objects.create(
+            phone_number=normalized_phone,
+            amount=rupee_amount,
+            transaction_type='credit',
+            is_paid=True
         )
 
         return JsonResponse({
