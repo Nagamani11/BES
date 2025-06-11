@@ -725,6 +725,15 @@ def reset_password(request):
                         'Please try again later.'},
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+# In ADMIN all ordes access to admin
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def list_all_orders(request):
+    orders = Orders.objects.all().order_by('-id')  # latest first
+    serializer = OrderSerializer(orders, many=True)
+    return Response(serializer.data)
+
 # Notification API
 
 
