@@ -169,7 +169,9 @@ def get_balance(request):
     if not mobile_number:
         return JsonResponse({'error': 'mobile_number is required'}, status=400)
 
-    normalized_phone = normalize_phone(mobile_number)
+    normalized_phone = re.sub(r'\D', '', mobile_number)
+    if normalized_phone.startswith('91') and len(normalized_phone) == 12:
+        normalized_phone = normalized_phone[2:]
 
     total_credit = Recharge.objects.filter(
         phone_number__endswith=normalized_phone,
@@ -186,36 +188,31 @@ def get_balance(request):
     balance = round(total_credit - total_debit, 2)
     return JsonResponse({'balance': balance})
 
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_recharge(request):
     mobile_number = request.data.get('mobile_number')
     amount = request.data.get('amount')
 
-    if not mobile_number:
-        return JsonResponse({'error': 'mobile_number is required'}, status=400)
-    if not amount:
-        return JsonResponse({'error': 'amount is required'}, status=400)
+    if not mobile_number or not amount:
+        return JsonResponse({'error': 'mobile_number and amount are required'}, status=400)
+
+    normalized_phone = re.sub(r'\D', '', mobile_number)
+    if normalized_phone.startswith('91') and len(normalized_phone) == 12:
+        normalized_phone = normalized_phone[2:]
 
     try:
         amount = int(amount)
     except ValueError:
-        return JsonResponse({'error': 'Amount must be an integer'}, status=400)
+        return JsonResponse({'error': 'Invalid amount format'}, status=400)
 
-    recharge = Recharge.objects.create(
-        phone_number=mobile_number,
-        amount=amount,
-        is_paid=True
-    )
-
+    # Forward this info to create_payment via frontend
     return JsonResponse({
-        'message': 'Recharge successful',
-        'phone_number': mobile_number,
-        'amount': recharge.amount,
-        'is_paid': recharge.is_paid,
-        'created_at': recharge.created_at
+        'message': 'Amount selected. Proceed to payment.',
+        'phone_number': normalized_phone,
+        'amount': amount  # in rupees
     }, status=200)
+
 
 
 @api_view(['POST'])
@@ -224,43 +221,37 @@ def create_payment(request):
     try:
         data = request.data
 
-        # Validate and parse amount
+        # Amount in rupees (expected from frontend)
         try:
-            amount = int(data['amount'])  # amount in paise
+            rupee_amount = float(data['amount'])  # e.g. 100
         except (KeyError, ValueError):
-            return JsonResponse(
-                {'success': False, 'error': 'Valid amount (in paise) is required'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Valid amount (in rupees) is required'}, status=400)
 
-        # Get and validate phone number
-        raw_phone = data.get('phone_number')
-        if not raw_phone:
-            return JsonResponse(
-                {'success': False, 'error': 'phone_number is required'},
-                status=400)
+        amount_paise = int(rupee_amount * 100)  # Razorpay expects paise
 
         # Normalize phone number
+        raw_phone = data.get('phone_number')
+        if not raw_phone:
+            return JsonResponse({'success': False, 'error': 'phone_number is required'}, status=400)
+
         normalized_phone = re.sub(r'\D', '', raw_phone)
         if normalized_phone.startswith('91') and len(normalized_phone) == 12:
             normalized_phone = normalized_phone[2:]
         if len(normalized_phone) != 10:
-            return JsonResponse(
-                {'success': False, 'error': 'Invalid phone number format. Expected 10 digits.'}, status=400)
+            return JsonResponse({'success': False, 'error': 'Invalid phone number format'}, status=400)
 
         # Validate payment method
         payment_method = data.get('payment_method', 'UPI')
         valid_methods = dict(RechargeTransaction.PAYMENT_METHOD_CHOICES)
         if payment_method not in valid_methods:
-            return JsonResponse({
-                'success': False,
-                'error': f'Invalid payment method. Choose from: {", ".join(valid_methods.keys())}'
-            }, status=400)
+            return JsonResponse({'success': False, 'error': f'Invalid payment method. Choose from: {", ".join(valid_methods.keys())}'}, status=400)
 
-        # Get user if exists
+        # Optional: Get user
         user = User.objects.filter(username=normalized_phone).first()
 
         # Create Razorpay order
         order_data = {
-            'amount': amount,
+            'amount': amount_paise,  # in paise
             'currency': 'INR',
             'payment_capture': 1,
             'notes': {
@@ -270,25 +261,22 @@ def create_payment(request):
         }
         razorpay_order = client.order.create(order_data)
 
-        # Save transaction
+        # Save as pending transaction in ₹
         RechargeTransaction.objects.create(
             user=user,
             phone_number=normalized_phone,
-            amount=amount / 100,  # Convert to rupees for storage
+            amount=rupee_amount,  # Store in ₹
             razorpay_order_id=razorpay_order['id'],
             payment_method=payment_method,
             status='Pending'
         )
 
-        # Response
         return JsonResponse({
             'success': True,
             'order_id': razorpay_order['id'],
-            'amount': amount,
-            'currency': 'INR',
-            'key_id': settings.RAZORPAY_KEY_ID,
-            'payment_method': payment_method,
-            'phone_number': normalized_phone
+            'amount_rupees': rupee_amount,
+            'phone_number': normalized_phone,
+            'key_id': settings.RAZORPAY_KEY_ID
         }, status=201)
 
     except Exception as e:
