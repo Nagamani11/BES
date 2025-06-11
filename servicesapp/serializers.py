@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import WorkerProfile
 from .models import OTP
-from .models import RechargeTransaction, Recharge
+from .models import RechargeTransaction, Order, Recharge
 from .models import Notification
 from .models import Orders, Booking
 # OTP serializers
@@ -55,6 +55,19 @@ class RechargeTransactionSerializer(serializers.ModelSerializer):
         # You can set default status as 'Pending' here if you want
         validated_data['status'] = 'Pending'
         return super().create(validated_data)
+
+# Order APIs
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'customer_phone', 'subcategory_name', 'booking_date',
+            'service_date', 'time', 'total_amount', 'status', 'full_address',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
 
 
 # Admin Email OTP serializer
