@@ -7,6 +7,7 @@ import string
 from datetime import timedelta
 from django.core.validators import FileExtensionValidator
 from django.contrib.auth import get_user_model
+
 User = get_user_model()
 
 
@@ -234,6 +235,39 @@ class RechargeTransaction(models.Model):
         return f"{username} ({phone}) - ₹{self.amount}"
 
 
+# Orders APIs
+class ServiceProvider(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)  # Name of the service provider
+    phone_number = models.CharField(max_length=15, unique=True)  # Phone number
+
+
+class Order(models.Model):
+    STATUS_CHOICES = (
+        ('Pending', 'Pending'),
+        ('Confirmed', 'Confirmed'),
+        ('Completed', 'Completed'),
+        ('Cancelled', 'Cancelled'),
+    )
+
+    customer_phone = models.CharField(max_length=15)
+    subcategory_name = models.CharField(max_length=100, blank=True)
+    booking_date = models.DateTimeField()
+    service_date = models.DateField()
+    time = models.TimeField()
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    full_address = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    accepted_by = models.CharField(max_length=15, null=True, blank=True)
+
+    class Meta:
+        db_table = 'otp_app_booking'  # Using the shared table
+        managed = True
+
+
 # Admin Email OTP
 class PasswordResetOTP(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -270,8 +304,7 @@ class Notification(models.Model):
     title = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=15)
     message = models.TextField()
-    order = models.ForeignKey('Orders', null=True, blank=True,
-                              on_delete=models.CASCADE)
+    order = models.ForeignKey('Orders', null=True, blank=True, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
