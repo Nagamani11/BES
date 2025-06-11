@@ -48,6 +48,7 @@ urlpatterns = [
          name='generate_password'),
     path('reset_password/', views.reset_password, name='reset_password'),
     path('admin_login/', views.admin_login, name='admin_login'),
+    path('list_all_orders/', views.list_all_orders, name='list_all_orders'),
     path('notifications/', views.notifications,
          name='notifications'),
     path('copy_booking_order/', views.copy_booking_order,
