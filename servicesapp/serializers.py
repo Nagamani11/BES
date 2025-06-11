@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import WorkerProfile
 from .models import OTP
-from .models import RechargeTransaction, Order, Recharge
+from .models import RechargeTransaction, Recharge
 from .models import Notification
 from .models import Orders, Booking
 # OTP serializers
