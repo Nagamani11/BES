@@ -22,14 +22,12 @@ from .models import Recharge
 from django.contrib.auth import authenticate
 from django.db.models import Sum
 from .models import Notification
-from .serializers import NotificationSerializer
 import re
 from django.db.models import Q
 from .serializers import OrderSerializer
 from .models import UserProfile
 from django.db import transaction
 from servicesapp.models import Booking, Orders
-from .serializers import BookingSerializer
 from django.utils.timezone import now
 
 
@@ -139,7 +137,8 @@ def verify_otp(request):
         }, status=200)
 
     except Exception as e:
-        return Response({"error": "Something went wrong", "details": str(e)}, status=500)
+        return Response({"error": "Something went wrong", "details": str(e)},
+                        status=500)
 
 
 @api_view(['POST'])
@@ -188,6 +187,7 @@ def get_balance(request):
     balance = round(total_credit - total_debit, 2)
     return JsonResponse({'balance': balance})
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_recharge(request):
@@ -195,7 +195,8 @@ def create_recharge(request):
     amount = request.data.get('amount')
 
     if not mobile_number or not amount:
-        return JsonResponse({'error': 'mobile_number and amount are required'}, status=400)
+        return JsonResponse({'error': 'mobile_number and amount are required'},
+                            status=400)
 
     normalized_phone = re.sub(r'\D', '', mobile_number)
     if normalized_phone.startswith('91') and len(normalized_phone) == 12:
@@ -224,26 +225,32 @@ def create_payment(request):
         try:
             rupee_amount = float(data['amount'])  # e.g. 100.0
         except (KeyError, ValueError):
-            return JsonResponse({'success': False, 'error': 'Valid amount (in rupees) is required'}, status=400)
+            return JsonResponse(
+                {'success': False, 'error': 'Valid amount (in rupees) is required'}, status=400)
 
-        amount_paise = int(rupee_amount * 100)  # Razorpay expects amount in paise
+        amount_paise = int(rupee_amount * 100)
 
         # Normalize phone number
         raw_phone = data.get('phone_number')
         if not raw_phone:
-            return JsonResponse({'success': False, 'error': 'phone_number is required'}, status=400)
+            return JsonResponse(
+                {'success': False, 'error': 'phone_number is required'},
+                status=400)
 
         normalized_phone = re.sub(r'\D', '', raw_phone)
         if normalized_phone.startswith('91') and len(normalized_phone) == 12:
             normalized_phone = normalized_phone[2:]
         if len(normalized_phone) != 10:
-            return JsonResponse({'success': False, 'error': 'Invalid phone number format'}, status=400)
+            return JsonResponse(
+                {'success': False, 'error': 'Invalid phone number format'},
+                status=400)
 
         # Validate payment method
         payment_method = data.get('payment_method', 'UPI')
         valid_methods = dict(RechargeTransaction.PAYMENT_METHOD_CHOICES)
         if payment_method not in valid_methods:
-            return JsonResponse({'success': False, 'error': f'Invalid payment method. Choose from: {", ".join(valid_methods.keys())}'}, status=400)
+            return JsonResponse(
+                {'success': False, 'error': f'Invalid payment method. Choose from: {", ".join(valid_methods.keys())}'}, status=400)
 
         # Optional: Get user
         user = User.objects.filter(username=normalized_phone).first()
@@ -267,7 +274,7 @@ def create_payment(request):
             amount=rupee_amount,
             razorpay_order_id=razorpay_order['id'],
             payment_method=payment_method,
-            status='Success'  # ✅ Marked as Success directly
+            status='Success'  # Marked as Success directly
         )
 
         # 3. Add to Recharge table as credit
@@ -458,7 +465,8 @@ def worker_orders(request):
 
     normalized_phone = normalize_phone(phone)
 
-    workers = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone)
+    workers = WorkerProfile.objects.filter(
+        phone_number__endswith=normalized_phone)
     if not workers.exists():
         return Response({"error": "Worker profile not found"}, status=404)
 
@@ -473,7 +481,8 @@ def worker_orders(request):
     for keyword in keywords:
         keyword_query |= Q(subcategory_name__icontains=keyword)
 
-    matched_orders = Order.objects.filter(keyword_query).order_by('-created_at')
+    matched_orders = Order.objects.filter(
+        keyword_query).order_by('-created_at')
 
     serializer = OrderSerializer(matched_orders, many=True)
     return Response(serializer.data)
@@ -484,7 +493,8 @@ def worker_orders(request):
 def get_pending_orders(request):
     try:
         # Only pending orders
-        orders = Order.objects.filter(status='Pending').order_by('-booking_date')
+        orders = Order.objects.filter(
+            status='Pending').order_by('-booking_date')
 
         # Define fields existing in Order model (exclude 'location_id')
         fields = [
@@ -515,12 +525,14 @@ def accept_order(request):
     phone = request.data.get('phone')
 
     if not order_id or not phone:
-        return Response({'error': 'order_id and phone are required'}, status=400)
+        return Response({'error': 'order_id and phone are required'},
+                        status=400)
 
     normalized_phone = normalize_phone(phone)
 
     try:
-        worker = WorkerProfile.objects.get(phone_number__endswith=normalized_phone)
+        worker = WorkerProfile.objects.get(
+            phone_number__endswith=normalized_phone)
     except WorkerProfile.DoesNotExist:
         return Response({'error': 'Worker not found'}, status=404)
 
@@ -528,7 +540,8 @@ def accept_order(request):
         with transaction.atomic():
             order = Order.objects.select_for_update().get(id=order_id)
             if order.status != 'Pending':
-                return Response({'error': f'Order already {order.status}'}, status=400)
+                return Response({'error': f'Order already {order.status}'},
+                                status=400)
 
             order.status = 'Confirmed'
             order.accepted_by = worker.phone_number
@@ -553,7 +566,9 @@ def cancel_order(request):
             order = Order.objects.select_for_update().get(id=order_id)
 
             if order.status != 'Confirmed':
-                return Response({'error': f'Cannot cancel an order that is {order.status}'}, status=400)
+                return Response(
+                 {'error': f'Cannot cancel an order that is {order.status}'},
+                 status=400)
 
             cancelled_by = order.accepted_by
 
@@ -579,7 +594,8 @@ def cancel_order(request):
     except Order.DoesNotExist:
         return Response({'error': 'Order not found'}, status=404)
 
-    return Response({'message': 'Order cancelled. No eligible worker found. Order remains open for others.'})
+    return Response(
+        {'message': 'Order cancelled. No eligible worker found. Order remains open for others.'})
 
 
 # Admin Email OTP APIs
@@ -744,7 +760,8 @@ def notifications(request):
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
-    notifications = Notification.objects.filter(phone_number=phone).order_by('-created_at')
+    notifications = Notification.objects.filter(
+        phone_number=phone).order_by('-created_at')
     data = [{
         "title": n.title,
         "message": n.message,
@@ -796,7 +813,7 @@ WORK_TYPE_KEYWORDS = {
     'beauty_salon': ["Eyebrows Shaping", "Mehndi", "Makeup Services",
                      "Nail Art", "Pedicure and Manicure",
                      "Paper Painting and Decor"],
-    'electrician': ["Wiring and Installation", "Fan and Light Repair", 
+    'electrician': ["Wiring and Installation", "Fan and Light Repair",
                     "Switchboard Fixing", "Appliance Repair", "AC Repair"],
     'tutors': ["School Tutor", "BTech Subjects", "Spoken English Trainer",
                "Software Courses Java", "Software Courses Python",
@@ -823,7 +840,8 @@ def workers_orders(request):
 
     normalized_phone = normalize_phone(phone)
 
-    workers = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone)
+    workers = WorkerProfile.objects.filter(
+        phone_number__endswith=normalized_phone)
     if not workers.exists():
         return Response({"error": "Worker profile not found"}, status=404)
 
@@ -834,7 +852,8 @@ def workers_orders(request):
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
-        return Response({"message": "No keywords mapped for this work type."}, status=204)
+        return Response({"message": "No keywords mapped for this work type."},
+                        status=204)
 
     # Create filter
     keyword_query = Q()
@@ -846,7 +865,8 @@ def workers_orders(request):
     orders = Orders.objects.filter(keyword_query)
 
     combined = list(bookings) + list(orders)
-    combined.sort(key=lambda obj: getattr(obj, 'created_at', now()), reverse=True)
+    combined.sort(key=lambda obj: getattr
+                  (obj, 'created_at', now()), reverse=True)
 
     results = []
     for obj in combined:
@@ -866,55 +886,57 @@ def workers_orders(request):
 
 
 WORK_TYPE_KEYWORDS = {
-    'daily_helpers': [
-        "Welder", "Fitter", "Mason", "Carpenter", "Painter", "Daily Helper",
-        "Water Tank Cleaning"
+    'daily_helpers': [  # Category ID 1
+        "Welder", "Fitter", "Mason", "Carpenter", "Painter",
+        "Daily Helper", "Water Tank Cleaning"
     ],
-    'cooking_cleaning': [
+    'cooking_cleaning': [  # Category ID 2
         "Cook", "House Cleaner", "Dishwasher"
     ],
-    'drivers': [
+    'drivers': [  # Category ID 3
         "Personal Driver", "Long Trip Driver", "Rental Car Driver"
     ],
-    'playzone': [
+    'playzone': [  # Category ID 4
         "Kids Play Zone", "Box Cricket", "Badminton"
     ],
-    'care': [
-        "Childcare Provider", "Elder Caregiver", "Special Needs Care"
+    'care': [  # Category ID 5
+        "Childcare Provider", "Elder Caregiver", "Special Care"
     ],
-    'petcare': [
-        "Dog Walker", "Pet Groomer", "Pet Sitter"
+    'petcare': [  # Category ID 6
+         "Pet Groomer", "Pet Care Taker", "Pet Home Service"
     ],
-    'beauty_salon': [
-        "Eyebrows Shaping", "Mehndi", "Makeup Services",
-        "Nail Art", "Pedicure and Manicure", "Paper Painting and Decor"
+    'beauty_salon': [  # Category ID 7
+        "Eyebrows Shaping", "Mehndi", "Makeup Services", "Nail Art",
+        "Pedicure and Manicure", "Waxing Basics", "Waxing Premium",
+        "Haircut", "Head Massage", "Body Massage"
     ],
-    'electrician': [
+    'electrician': [  # Category ID 8
         "Wiring and Installation", "Fan and Light Repair",
         "Switchboard Fixing", "Appliance Repair", "AC Repair"
     ],
-    'tutors': [
+    'tutors': [  # Category ID 9
         "School Tutor", "BTech Subjects", "Spoken English Trainer",
-        "Software Courses Java", "Software Courses Python",
-        "Software Courses Web Dev"
+        "Software Courses Java", "Software Courses Python"
     ],
-    'plumber': [
-        "Leak Repair", "Tap and Pipe Installation",
-        "Drainage and Sewage"
+    'plumber': [  # Category ID 10
+        "Leak Repair", "Tap and Pipe Installation", "Drainage and Sewage"
     ],
-    'decorators': [
-        "Event Decor", "Birthday and Party Decoration"
+    'decorators': [  # Category ID 11
+        "Event Decor", "Birthday and Party Decoration",
+        "DJ", "Event Lighting", "Event Tent House"
     ],
-    'nursing': [
+    'nursing': [  # Category ID 12
         "Injection and IV Drip", "Wound Dressing",
-        "Blood Pressure and Diabetes Monitoring", "Physiotherapy"
+        "Blood Pressure and Diabetes Monitoring",
+        "Orthopedic Physiotherapy", "Neurological Physiotherapy",
+        "Cardiopulmonary Physiotherapy", "Pediatric Physiotherapy"
     ],
-    'laundry': [
-        "Cloth Washing", "Iron", "Washing and Iron", "Laundry", "Dry Cleaning"
+    'laundry': [  # Category ID 13
+        "Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"
     ],
-    'swimming': [
+    'swimming': [  # Category ID 14
         "Kids Swimming", "Trainer Swim", "Adult Swimming"
-    ],
+    ]
 }
 
 
@@ -934,13 +956,15 @@ def worker_job_action(request):
         return Response({"error": "Phone number is required"}, status=400)
 
     normalized_phone = normalize_phone(phone)
-    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+    worker = WorkerProfile.objects.filter(
+        phone_number__endswith=normalized_phone).first()
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
-        return Response({"message": "No keywords mapped for this work type."}, status=204)
+        return Response({"message": "No keywords mapped for this work type."},
+                        status=204)
 
     keyword_query = Q()
     for keyword in keywords:
@@ -970,12 +994,15 @@ def worker_job_action(request):
     # Action 2: Accept booking and copy to Orders
     elif action == "accept":
         if not booking_id:
-            return Response({"error": "booking_id is required for accept"}, status=400)
+            return Response({"error": "booking_id is required for accept"},
+                            status=400)
         try:
             booking = Booking.objects.get(id=booking_id)
 
-            if Orders.objects.filter(booking_date=booking.booking_date).exists():
-                return Response({"error": "This booking is already accepted"}, status=400)
+            if Orders.objects.filter(
+                  booking_date=booking.booking_date).exists():
+                return Response({"error": "This booking is already accepted"},
+                                status=400)
 
             order = Orders.objects.create(
                 customer_phone=booking.customer_phone,
@@ -999,7 +1026,8 @@ def worker_job_action(request):
                 order=order
             )
 
-            return Response({"message": "Order accepted", "order_id": order.id})
+            return Response(
+                {"message": "Order accepted", "order_id": order.id})
         except Booking.DoesNotExist:
             return Response({"error": "Booking not found"}, status=404)
 
@@ -1014,7 +1042,9 @@ def worker_job_action(request):
             order.save()
 
             # Find next eligible worker
-            next_worker = WorkerProfile.objects.exclude(phone_number=worker.phone_number).filter(work_type=worker.work_type).first()
+            next_worker = WorkerProfile.objects.exclude(
+                phone_number=worker.phone_number).filter(
+                    work_type=worker.work_type).first()
             if next_worker:
                 return Response({
                     "message": "Order cancelled. Assign to next worker.",
@@ -1029,21 +1059,18 @@ def worker_job_action(request):
     return Response({"error": "Invalid action"}, status=400)
 
 
-# to display in orders 
+# to display in orders
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_accepted_orders(request):
     worker_phone = request.query_params.get('phone')
-    
     if not worker_phone:
         return Response({"error": "Phone number is required"}, status=400)
-    
     try:
         # Get orders that are either Confirmed or Completed
         orders = Orders.objects.filter(
             Q(status='Confirmed') | Q(status='Completed')
         ).order_by('-created_at')
-        
         results = []
         for order in orders:
             results.append({
@@ -1057,8 +1084,6 @@ def get_accepted_orders(request):
                 "full_address": order.full_address,
                 "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             })
-            
         return Response({"data": results})
-    
     except Exception as e:
         return Response({"error": str(e)}, status=500)
