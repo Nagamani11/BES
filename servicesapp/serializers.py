@@ -3,7 +3,7 @@ from .models import WorkerProfile
 from .models import OTP
 from .models import RechargeTransaction, Order, Recharge
 from .models import Notification
-from .models import Orders, Booking
+from .models import Orders, Payment
 # OTP serializers
 
 
@@ -95,13 +95,39 @@ class NotificationSerializer(serializers.ModelSerializer):
 # serializers.py
 
 
+class PaymentSerializer(serializers.ModelSerializer):
+    subcategory_name = serializers.SerializerMethodField()
+    service_date = serializers.SerializerMethodField()
+    full_address = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Payment
+        fields = [
+            'id',
+            'order_id',
+            'customer_phone',
+            'amount',
+            'status',
+            'payment_method',
+            'booking_date',
+            'booking_time',
+            'subcategory_name',
+            'service_date',
+            'full_address',
+            'created_at'
+        ]
+
+    def get_subcategory_name(self, obj):
+        return obj.booking.subcategory_name if obj.booking else "N/A"
+
+    def get_service_date(self, obj):
+        return obj.booking.service_date if obj.booking else obj.booking_date
+
+    def get_full_address(self, obj):
+        return obj.booking.full_address if obj.booking else ""
+
+
 class OrdersSerializer(serializers.ModelSerializer):
     class Meta:
         model = Orders
-        fields = '__all__'
-
-
-class BookingSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Booking
         fields = '__all__'
