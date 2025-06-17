@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.permissions import AllowAny
 import random
 from twilio.rest import Client
-from .models import OTP, WorkerProfile
+from .models import OTP, Payment, WorkerProfile
 import logging
 from django.conf import settings
 import razorpay
@@ -16,7 +16,7 @@ from .models import RechargeTransaction
 from .models import Order
 from django.contrib.auth.models import User
 from .models import PasswordResetOTP
-from .serializers import GenerateOTPSerializer
+from .serializers import GenerateOTPSerializer, OrdersSerializer
 from django.core.mail import send_mail
 from .models import Recharge
 from django.contrib.auth import authenticate
@@ -27,7 +27,7 @@ from django.db.models import Q
 from .serializers import OrderSerializer
 from .models import UserProfile
 from django.db import transaction
-from servicesapp.models import Booking, Orders
+from servicesapp.models import Orders
 from django.utils.timezone import now
 
 
@@ -746,10 +746,12 @@ def reset_password(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def list_all_orders(request):
-    orders = Orders.objects.all().order_by('-id')  # latest first
-    serializer = OrderSerializer(orders, many=True)
-    return Response(serializer.data)
-
+    try:
+        orders = Orders.objects.all().order_by('-id')  # latest orders first
+        serializer = OrdersSerializer(orders, many=True)
+        return Response(serializer.data, status=200)
+    except Exception as e:
+        return Response({"error": str(e)}, status=500)
 # Notification API
 
 
@@ -900,41 +902,45 @@ WORK_TYPE_KEYWORDS = {
         "Kids Play Zone", "Box Cricket", "Badminton"
     ],
     'care': [  # Category ID 5
-        "Childcare Provider", "Elder Caregiver", "Special Care"
+        "Childcare Provider", "Elder Caregiver", "Special Needs Care"
     ],
     'petcare': [  # Category ID 6
-         "Pet Groomer", "Pet Care Taker", "Pet Home Service"
+        "Dog Walker", "Pet Groomer", "Pet Care Taker", "Pet Home Service"
     ],
     'beauty_salon': [  # Category ID 7
         "Eyebrows Shaping", "Mehndi", "Makeup Services", "Nail Art",
         "Pedicure and Manicure", "Waxing Basics", "Waxing Premium",
         "Haircut", "Head Massage", "Body Massage"
     ],
-    'electrician': [  # Category ID 8
+    'mens_salon': [  # Category ID 8
+        "Haircut", "Style Haircut (Creative)", "Oil Head Massage",
+        "Hair Colour", "Facial (Normal)", "Body Massage (Normal)", "Shaving or Trimming"
+    ],
+    'electrician': [  # Category ID 9
         "Wiring and Installation", "Fan and Light Repair",
         "Switchboard Fixing", "Appliance Repair", "AC Repair"
     ],
-    'tutors': [  # Category ID 9
+    'tutors': [  # Category ID 10
         "School Tutor", "BTech Subjects", "Spoken English Trainer",
         "Software Courses Java", "Software Courses Python"
     ],
-    'plumber': [  # Category ID 10
+    'plumber': [  # Category ID 11
         "Leak Repair", "Tap and Pipe Installation", "Drainage and Sewage"
     ],
-    'decorators': [  # Category ID 11
+    'decorators': [  # Category ID 12
         "Event Decor", "Birthday and Party Decoration",
         "DJ", "Event Lighting", "Event Tent House"
     ],
-    'nursing': [  # Category ID 12
+    'nursing': [  # Category ID 13
         "Injection and IV Drip", "Wound Dressing",
         "Blood Pressure and Diabetes Monitoring",
         "Orthopedic Physiotherapy", "Neurological Physiotherapy",
         "Cardiopulmonary Physiotherapy", "Pediatric Physiotherapy"
     ],
-    'laundry': [  # Category ID 13
+    'laundry': [  # Category ID 14
         "Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"
     ],
-    'swimming': [  # Category ID 14
+    'swimming': [  # Category ID 15
         "Kids Swimming", "Trainer Swim", "Adult Swimming"
     ]
 }
@@ -949,110 +955,110 @@ def normalize_phone(phone):
 def worker_job_action(request):
     phone = request.data.get("phone")
     action = request.data.get("action")  # fetch, accept, cancel
-    booking_id = request.data.get("booking_id")
+    payment_id = request.data.get("payment_id")
     order_id = request.data.get("order_id")
 
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
     normalized_phone = normalize_phone(phone)
-    worker = WorkerProfile.objects.filter(
-        phone_number__endswith=normalized_phone).first()
+    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
-        return Response({"message": "No keywords mapped for this work type."},
-                        status=204)
+        return Response({"message": "No keywords mapped for this work type."}, status=204)
 
-    keyword_query = Q()
-    for keyword in keywords:
-        keyword_query |= Q(subcategory_name__icontains=keyword)
-
-    # Action 1: Fetch eligible bookings
+    # FETCH ACTION
     if action == "fetch":
-        bookings = Booking.objects.filter(keyword_query).exclude(
-            booking_date__in=Orders.objects.values_list('booking_date',
-                                                        flat=True)
-        ).order_by('created_at')
+        # Match subcategories and status either Pending or Completed (both needed)
+        payments = Payment.objects.filter(
+            subcategory_name__in=keywords,
+            status__in=["Pending", "Completed"]  # show both
+        ).order_by("-created_at")
 
         results = []
-        for obj in bookings:
+
+        for obj in payments:
             results.append({
-                "booking_id": obj.id,
+                "payment_id": obj.id,
                 "subcategory_name": obj.subcategory_name,
                 "customer_phone": obj.customer_phone,
                 "status": obj.status,
                 "service_date": obj.service_date,
                 "created_at": obj.created_at,
-                "total_amount": str(obj.total_amount),
-                "full_address": obj.full_address
+                "total_amount": str(obj.amount),
+                "full_address": obj.full_address or "",
+                "service_time": obj.booking_time
             })
+
         return Response({"data": results})
 
-    # Action 2: Accept booking and copy to Orders
+    # ACCEPT ACTION
     elif action == "accept":
-        if not booking_id:
-            return Response({"error": "booking_id is required for accept"},
-                            status=400)
-        try:
-            booking = Booking.objects.get(id=booking_id)
+        if not payment_id:
+            return Response({"error": "payment_id is required for accept"}, status=400)
 
-            if Orders.objects.filter(
-                  booking_date=booking.booking_date).exists():
-                return Response({"error": "This booking is already accepted"},
-                                status=400)
+        try:
+            payment = Payment.objects.get(id=payment_id)
+
+            if Orders.objects.filter(booking_date=payment.booking_date, booking_time=payment.booking_time).exists():
+                return Response({"error": "This order is already accepted"}, status=400)
 
             order = Orders.objects.create(
-                customer_phone=booking.customer_phone,
-                subcategory_name=booking.subcategory_name,
-                booking_date=booking.booking_date,
-                service_date=booking.service_date,
-                time=booking.time,
-                total_amount=booking.total_amount,
+                customer_phone=payment.customer_phone,
+                subcategory_name=payment.subcategory_name,
+                booking_date=payment.booking_date,
+                booking_time=payment.booking_time,
+                service_date=payment.service_date or payment.booking_date,
+                total_amount=payment.amount,
                 status="Confirmed",
-                full_address=booking.full_address,
-                created_at=now(),
-                updated_at=now(),
+                full_address=payment.full_address or "",
+                created_at=timezone.now(),
+                updated_at=timezone.now()
             )
 
-            #  Create Notification for Worker
+            payment.status = "Scheduled"
+            payment.save()
+
             Notification.objects.create(
                 category="Order",
                 title="New Order Confirmed",
                 phone_number=worker.phone_number,
-                message=f"You accepted an order for {booking.subcategory_name} on {booking.service_date}.",
+                message=f"You accepted an order for {order.subcategory_name} on {order.service_date}.",
                 order=order
             )
 
-            return Response(
-                {"message": "Order accepted", "order_id": order.id})
-        except Booking.DoesNotExist:
-            return Response({"error": "Booking not found"}, status=404)
+            return Response({"message": "Order accepted", "order_id": order.id})
 
-    # Action 3: Cancel and assign to next eligible worker
+        except Payment.DoesNotExist:
+            return Response({"error": "Payment not found"}, status=404)
+
+    # CANCEL ACTION
     elif action == "cancel":
         if not order_id:
-            return Response({"error": "order_id is required for cancel"},
-                            status=400)
+            return Response({"error": "order_id is required for cancel"}, status=400)
+
         try:
             order = Orders.objects.get(id=order_id)
             order.status = "Cancelled"
+            order.updated_at = timezone.now()
             order.save()
 
-            # Find next eligible worker
             next_worker = WorkerProfile.objects.exclude(
-                phone_number=worker.phone_number).filter(
-                    work_type=worker.work_type).first()
+                phone_number=worker.phone_number
+            ).filter(work_type=worker.work_type).first()
+
             if next_worker:
                 return Response({
                     "message": "Order cancelled. Assign to next worker.",
                     "next_worker_phone": next_worker.phone_number
                 })
             else:
-                return Response(
-                    {"message": "Cancelled. No next worker available."})
+                return Response({"message": "Cancelled. No next worker available."})
+
         except Orders.DoesNotExist:
             return Response({"error": "Order not found"}, status=404)
 
