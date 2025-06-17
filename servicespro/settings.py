@@ -226,4 +226,4 @@ LOGGING = {
 }
 
 # Webhook configuration
-WEBHOOK_API_KEY = 'HefMVGCfyzxgQgdcQ4Pqlqb5JlS_m-VmaGAY8z1nQVU'  # Must match Project A's API key
+WEBHOOK_API_KEY = 'HefMVGCfyzxgQgdcQ4Pqlqb5JlS_m-VmaGAY8z1nQVU'
