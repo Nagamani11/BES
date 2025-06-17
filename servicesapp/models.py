@@ -4,10 +4,10 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 import random
 import string
-from datetime import timedelta
+from datetime import datetime, timedelta
 from django.core.validators import FileExtensionValidator
 from django.contrib.auth import get_user_model
-
+from datetime import time
 User = get_user_model()
 
 
@@ -51,20 +51,21 @@ def worker_certification_path(instance, filename):
 class WorkerProfile(models.Model):
     # Work Type Choices
     WORK_TYPE_CHOICES = [
-        ('daily_helpers', 'Daily Helpers'),
-        ('cooking_cleaning', 'Cooking and Cleaning'),
-        ('drivers', 'Drivers'),
-        ('playzone', 'PlayZone'),
-        ('care', 'Child and Adults Care'),
-        ('petcare', 'PetCare'),
-        ('beauty_salon', 'Beauty and Salon'),
-        ('electrician', 'Electrician and AC Services'),
-        ('tutors', 'Tutors'),
-        ('nursing', 'Nursing'),
-        ('plumber', 'Plumber'),
-        ('decorators', 'Function and Home Decorators'),
-        ('laundry', 'Laundry'),          # Newly added
-        ('swimming', 'Swimming'),         # Newly added
+        ('daily_helpers', 'Daily Helpers'),                 # 1
+        ('cooking_cleaning', 'Cooking and Cleaning'),       # 2
+        ('drivers', 'Drivers'),                             # 3
+        ('playzone', 'Play Zone'),                          # 4
+        ('care', 'Child and Adults Care'),                  # 5
+        ('petcare', 'Pet Care'),                            # 6
+        ('beauty_salon', 'Beauty and Salon'),               # 7
+        ('mens_salon', "Men's Salon"),                      # 8  ← Newly added
+        ('electrician', 'Electrician and AC'),              # 9
+        ('tutors', 'Tutors'),                               # 10
+        ('plumber', 'Plumber'),                             # 11
+        ('decorators', 'Decor Services'),                   # 12
+        ('nursing', 'Nursing'),                             # 13
+        ('laundry', 'Laundry'),                             # 14
+        ('swimming', 'Swimming'),                           # 15
     ]
 
     # Education Level Choices
@@ -304,7 +305,8 @@ class Notification(models.Model):
     title = models.CharField(max_length=255)
     phone_number = models.CharField(max_length=15)
     message = models.TextField()
-    order = models.ForeignKey('Orders', null=True, blank=True, on_delete=models.CASCADE)
+    order = models.ForeignKey('Orders', null=True, blank=True,
+                              on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -313,22 +315,46 @@ class Notification(models.Model):
 
 # servicesapp/models.py
 
-class Booking(models.Model):
-    # Read-only model mapping to otp_app_booking
-    customer_phone = models.CharField(max_length=15)
-    subcategory_name = models.CharField(max_length=100, blank=True)
-    booking_date = models.DateTimeField()
-    service_date = models.DateField()
-    time = models.TimeField()
-    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=20)
-    full_address = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField()
-    updated_at = models.DateTimeField()
+class Payment(models.Model):
+    PAYMENT_METHOD_CHOICES = [
+        ("cash", "Cash"),
+        ("card", "Card"),
+        ("upi", "UPI"),
+        ("wallet", "Wallet"),
+    ]
+    STATUS_CHOICES = [
+        ("Pending", "Pending"),
+        ("Scheduled", "Scheduled"),
+        ("Completed", "Completed"),
+        ("Failed", "Failed"),
+    ]
+
+    order_id = models.CharField(max_length=100, unique=True)
+    customer_phone = models.CharField(max_length=15, null=True, blank=True)
+    subcategory_name = models.CharField(max_length=100, null=True, blank=True)
+    service_date = models.DateField(null=True, blank=True)
+    full_address = models.TextField(null=True, blank=True)
+    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="cash")
+    transaction_id = models.CharField(max_length=100, null=True, blank=True)
+    razorpay_order_id = models.CharField(max_length=255, null=True, blank=True)
+    razorpay_payment_id = models.CharField(max_length=100, blank=True, null=True)
+    razorpay_signature = models.CharField(max_length=100, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Pending")
+    paid_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    booking_date = models.DateField(default=timezone.now)
+    booking_time = models.CharField(max_length=50, default=datetime.now().strftime("%H:%M"))
+
+    def __str__(self):
+        return f"Payment #{self.id} - {self.subcategory_name} - {self.status}"
 
     class Meta:
-        db_table = 'otp_app_booking'
+        db_table = 'otp_app_payment'
         managed = False
+        ordering = ["-created_at"]
 
 
 class Orders(models.Model):
@@ -341,9 +367,10 @@ class Orders(models.Model):
 
     customer_phone = models.CharField(max_length=15)
     subcategory_name = models.CharField(max_length=100, blank=True)
-    booking_date = models.DateTimeField()
+    booking_date = models.DateField()
+    booking_time = models.CharField(max_length=50)
     service_date = models.DateField()
-    time = models.TimeField()
+    time = models.TimeField(default=time(9, 0))
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
     full_address = models.TextField(blank=True, null=True)
