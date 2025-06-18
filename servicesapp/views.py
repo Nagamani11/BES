@@ -935,7 +935,7 @@ WORK_TYPE_KEYWORDS = {
         "Injection and IV Drip", "Wound Dressing",
         "Blood Pressure and Diabetes Monitoring",
         "Orthopedic Physiotherapy", "Neurological Physiotherapy",
-        "Cardiopulmonary Physiotherapy", "Pediatric Physiotherapy"
+        "Pediatric Physiotherapy"
     ],
     'laundry': [  # Category ID 14
         "Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"
@@ -945,9 +945,35 @@ WORK_TYPE_KEYWORDS = {
     ]
 }
 
+MINIMUM_RECHARGE = 250
+
 
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
+
+
+def get_worker_balance(phone_number):
+    normalized = normalize_phone(phone_number)
+    credits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='credit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+    debits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='debit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+    return credits - debits
+
+
+def deduct_worker_balance(phone_number, amount):
+    Recharge.objects.create(
+        phone_number=phone_number,
+        amount=amount,
+        transaction_type='debit',
+        is_paid=True
+    )
 
 
 @api_view(['POST'])
@@ -955,54 +981,24 @@ def normalize_phone(phone):
 def worker_job_action(request):
     phone = request.data.get("phone")
     action = request.data.get("action")  # fetch, accept, cancel
-    payment_id = request.data.get("payment_id")
-    order_id = request.data.get("order_id")
-
+    booking_id = request.data.get("booking_id")  # This is the Payment.id (int)
+    
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
-    normalized_phone = phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
-    worker = WorkerProfile.objects.filter(
-        phone_number__endswith=normalized_phone).first()
+    normalized_phone = normalize_phone(phone)
+    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
 
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
-    MINIMUM_RECHARGE = 250
-
-    def get_worker_balance(phone_number):
-        normalized = normalize_phone(phone_number)
-        # Find all recharge records where phone_number endswith normalized
-        credits = Recharge.objects.filter(
-            phone_number__endswith=normalized,
-            transaction_type='credit',
-            is_paid=True
-        ).aggregate(total=Sum('amount'))['total'] or 0
-        debits = Recharge.objects.filter(
-            phone_number__endswith=normalized,
-            transaction_type='debit',
-            is_paid=True
-        ).aggregate(total=Sum('amount'))['total'] or 0
-        return credits - debits
-
-    def deduct_worker_balance(phone_number, amount):
-        # Create a debit recharge record
-        Recharge.objects.create(
-            phone_number=phone_number,
-            amount=amount,
-            transaction_type='debit',
-            is_paid=True
-        )
-
-    # Check recharge balance
     balance = get_worker_balance(worker.phone_number)
     if balance < MINIMUM_RECHARGE:
-        # Send notification/message if needed
         Notification.objects.create(
             category="Recharge",
             title="Low Connects",
             phone_number=worker.phone_number,
-            message=f"Connects are over. Please recharge to continue accepting orders."
+            message="Connects are over. Please recharge to continue accepting orders."
         )
         if action == "fetch":
             return Response({
@@ -1013,14 +1009,11 @@ def worker_job_action(request):
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
-        return Response({"message": "No keywords mapped for this work type."},
-                        status=204)
+        return Response({"message": "No keywords mapped for this work type."}, status=204)
 
     # FETCH ACTION
     if action == "fetch":
-        # Exclude already accepted orders
-        accepted_orders = Orders.objects.values_list(
-            'booking_date', 'booking_time')
+        accepted_orders = Orders.objects.values_list('booking_date', 'booking_time')
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
             status__in=["Pending", "Completed"]
@@ -1032,7 +1025,7 @@ def worker_job_action(request):
         results = []
         for obj in payments:
             results.append({
-                "payment_id": obj.id,
+                "booking_id": obj.id,  # Use Payment.id as booking_id
                 "subcategory_name": obj.subcategory_name,
                 "customer_phone": obj.customer_phone,
                 "status": obj.status,
@@ -1047,16 +1040,15 @@ def worker_job_action(request):
 
     # ACCEPT ACTION
     elif action == "accept":
-        if not payment_id:
-            return Response({"error": "payment_id is required for accept"}, status=400)
+        if not booking_id:
+            return Response({"error": "booking_id is required for accept"}, status=400)
 
         try:
-            payment = Payment.objects.get(id=payment_id)
+            payment = Payment.objects.get(id=booking_id)
 
             if Orders.objects.filter(booking_date=payment.booking_date, booking_time=payment.booking_time).exists():
                 return Response({"error": "This order is already accepted"}, status=400)
 
-            # Calculate 10% cut and add tax if payment is cash
             cut_amount = payment.amount * 0.10
             total_deduction = cut_amount
 
@@ -1086,13 +1078,13 @@ def worker_job_action(request):
                 category="Order",
                 title="New Order Confirmed",
                 phone_number=worker.phone_number,
-                message=f"You accepted an order for {order.subcategory_name} on {order.service_date}.",
+                message=f"You accepted an order (Booking ID: {payment.id}) for {order.subcategory_name} on {order.service_date}.",
                 order=order
             )
 
             return Response({
                 "message": "Order accepted",
-                "order_id": order.id,
+                "booking_id": payment.id,  # Return booking_id
                 "balance": float(get_worker_balance(worker.phone_number))
             })
 
@@ -1101,12 +1093,17 @@ def worker_job_action(request):
 
     # CANCEL ACTION
     elif action == "cancel":
-        if not order_id:
-            return Response({"error": "order_id is required for cancel"},
-                            status=400)
+        if not booking_id:
+            return Response({"error": "booking_id is required for cancel"}, status=400)
 
         try:
-            order = Orders.objects.get(id=order_id)
+            payment = Payment.objects.get(id=booking_id)
+            order = Orders.objects.filter(
+                booking_date=payment.booking_date,
+                booking_time=payment.booking_time
+            ).first()
+            if not order:
+                return Response({"error": "Order not found"}, status=404)
             order.status = "Cancelled"
             order.updated_at = timezone.now()
             order.save()
@@ -1123,7 +1120,7 @@ def worker_job_action(request):
             else:
                 return Response({"message": "Cancelled. No next worker available."})
 
-        except Orders.DoesNotExist:
+        except Payment.DoesNotExist:
             return Response({"error": "Order not found"}, status=404)
 
     return Response({"error": "Invalid action"}, status=400)
