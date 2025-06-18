@@ -29,7 +29,7 @@ from .models import UserProfile
 from django.db import transaction
 from servicesapp.models import Orders
 from django.utils.timezone import now
-
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -1049,11 +1049,11 @@ def worker_job_action(request):
             if Orders.objects.filter(booking_date=payment.booking_date, booking_time=payment.booking_time).exists():
                 return Response({"error": "This order is already accepted"}, status=400)
 
-            cut_amount = payment.amount * 0.10
+            cut_amount = payment.amount * Decimal('0.10')
             total_deduction = cut_amount
 
             if payment.payment_method == "cash":
-                total_deduction += float(payment.tax_amount or 0)
+                total_deduction += Decimal(str(payment.tax_amount or 0))
                 if balance < total_deduction:
                     return Response({"error": "Insufficient balance to accept this order."}, status=403)
                 deduct_worker_balance(worker.phone_number, total_deduction)
