@@ -829,8 +829,8 @@ WORK_TYPE_KEYWORDS = {
 }
 
 
-def normalize_phone(phone):
-    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
+# def normalize_phone(phone):
+#     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
 
 
 @api_view(['GET'])
@@ -961,11 +961,54 @@ def worker_job_action(request):
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
-    normalized_phone = normalize_phone(phone)
+    normalized_phone = phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
     worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
 
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
+
+    MINIMUM_RECHARGE = 250
+
+    def get_worker_balance(phone_number):
+        normalized = normalize_phone(phone_number)
+        # Find all recharge records where phone_number endswith normalized
+        credits = Recharge.objects.filter(
+            phone_number__endswith=normalized,
+            transaction_type='credit',
+            is_paid=True
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        debits = Recharge.objects.filter(
+            phone_number__endswith=normalized,
+            transaction_type='debit',
+            is_paid=True
+        ).aggregate(total=Sum('amount'))['total'] or 0
+        return credits - debits
+
+    def deduct_worker_balance(phone_number, amount):
+        # Create a debit recharge record
+        Recharge.objects.create(
+            phone_number=phone_number,
+            amount=amount,
+            transaction_type='debit',
+            is_paid=True
+        )
+
+    # Check recharge balance
+    balance = get_worker_balance(worker.phone_number)
+    if balance < MINIMUM_RECHARGE:
+        # Send notification/message if needed
+        Notification.objects.create(
+            category="Recharge",
+            title="Low Connects",
+            phone_number=worker.phone_number,
+            message=f"Connects are over. Please recharge to continue accepting orders."
+        )
+        if action == "fetch":
+            return Response({
+                "error": "Low balance",
+                "message": "Connects are over. Please recharge to continue accepting orders.",
+                "balance": float(balance)
+            }, status=403)
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
@@ -973,14 +1016,17 @@ def worker_job_action(request):
 
     # FETCH ACTION
     if action == "fetch":
-        # Match subcategories and status either Pending or Completed (both needed)
+        # Exclude already accepted orders
+        accepted_orders = Orders.objects.values_list('booking_date', 'booking_time')
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
-            status__in=["Pending", "Completed"]  # show both
+            status__in=["Pending", "Completed"]
+        ).exclude(
+            Q(booking_date__in=[od[0] for od in accepted_orders]) &
+            Q(booking_time__in=[od[1] for od in accepted_orders])
         ).order_by("-created_at")
 
         results = []
-
         for obj in payments:
             results.append({
                 "payment_id": obj.id,
@@ -994,7 +1040,7 @@ def worker_job_action(request):
                 "service_time": obj.booking_time
             })
 
-        return Response({"data": results})
+        return Response({"data": results, "balance": float(balance)})
 
     # ACCEPT ACTION
     elif action == "accept":
@@ -1006,6 +1052,15 @@ def worker_job_action(request):
 
             if Orders.objects.filter(booking_date=payment.booking_date, booking_time=payment.booking_time).exists():
                 return Response({"error": "This order is already accepted"}, status=400)
+
+            # Calculate 10% cut
+            cut_amount = payment.amount * 0.10
+
+            # If payment method is cash, deduct tax and recharge from balance
+            if payment.payment_method == "cash":
+                if balance < cut_amount:
+                    return Response({"error": "Insufficient balance to accept this order."}, status=403)
+                deduct_worker_balance(worker.phone_number, cut_amount)
 
             order = Orders.objects.create(
                 customer_phone=payment.customer_phone,
