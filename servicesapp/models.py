@@ -52,14 +52,14 @@ class WorkerProfile(models.Model):
     # Work Type Choices
     WORK_TYPE_CHOICES = [
         ('daily_helpers', 'Daily Helpers'),                 # 1
-        ('cooking_cleaning', 'Cooking and Cleaning'),       # 2
+        ('cooking_cleaning', 'Cook and Clean'),             # 2
         ('drivers', 'Drivers'),                             # 3
         ('playzone', 'Play Zone'),                          # 4
         ('care', 'Child and Adults Care'),                  # 5
         ('petcare', 'Pet Care'),                            # 6
         ('beauty_salon', 'Beauty and Salon'),               # 7
         ('mens_salon', "Men's Salon"),                      # 8  ← Newly added
-        ('electrician', 'Electrician and AC'),              # 9
+        ('electrician', 'Electrician and AC Service'),      # 9
         ('tutors', 'Tutors'),                               # 10
         ('plumber', 'Plumber'),                             # 11
         ('decorators', 'Decor Services'),                   # 12
@@ -90,10 +90,10 @@ class WorkerProfile(models.Model):
     # Country Choices
     COUNTRY_CHOICES = [
         ('india', 'India'),
-        ('usa', 'USA'),
+        ('usa', 'United State'),
         ('singapore', 'Singapore'),
-        ('uk', 'UK'),
-        ('uae', 'UAE'),
+        ('uk', 'United Kingdom'),
+        ('uae', 'United Arab Emirates'),
         ('canada', 'Canada'),
         ('australia', 'Australia'),
     ]
