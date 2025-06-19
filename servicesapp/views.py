@@ -30,6 +30,9 @@ from django.db import transaction
 from servicesapp.models import Orders
 from decimal import Decimal
 from django.core.cache import cache
+import json
+from django.core.files.storage import default_storage
+
 
 logger = logging.getLogger(__name__)
 
@@ -141,22 +144,58 @@ def verify_otp(request):
                         status=500)
 
 # Form API for Worker Profile
-
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def worker_form(request):
-    serializer = WorkerProfileSerializer(data=request.data)
-    print("worker form")
-    if serializer.is_valid():
-        serializer.save()
-        print("worker form saved")
-        return Response({'message': 'Worker profile created successfully.'},
-                        status=status.HTTP_200_OK)
+    data = request.data.copy()
 
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    # Parse list fields safely
+    try:
+        document_types = json.loads(data.get('document_types', '[]'))
+        certification_types = json.loads(data.get('certification_types', '[]'))
+    except json.JSONDecodeError:
+        return Response({
+            "error": "Invalid JSON in document_types or certification_types"
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    print("worker form end")
+    # Create the worker profile
+    worker = WorkerProfile.objects.create(
+        full_name=data.get('full_name'),
+        phone_number=data.get('phone_number'),
+        email=data.get('email'),
+        work_type=data.get('work_type'),
+        years_of_experience=data.get('years_of_experience') or None,
+        experience_country=data.get('experience_country'),
+        specialization=data.get('specialization'),
+        education=data.get('education'),
+        document_types=document_types,
+        certification_types=certification_types,
+    )
+
+    # Save photo if available
+    if 'photo' in request.FILES:
+        worker.photo = request.FILES['photo']
+
+    # Save document files
+    doc_files = request.FILES.getlist('document_files')
+    doc_paths = []
+    for doc_file in doc_files:
+        path = default_storage.save(f'workers/documents/{doc_file.name}', doc_file)
+        doc_paths.append(path)
+    worker.document_files = doc_paths  # Already a list
+
+    # Save certification files
+    cert_files = request.FILES.getlist('certification_files')
+    cert_paths = []
+    for cert_file in cert_files:
+        path = default_storage.save(f'workers/certifications/{cert_file.name}', cert_file)
+        cert_paths.append(path)
+    worker.certification_files = cert_paths  # Already a list
+
+    # Final save
+    worker.save()
+
+    return Response({'message': 'Worker profile created successfully.'}, status=status.HTTP_200_OK)
 
 # GET  and POSTAPI for FORM
 
