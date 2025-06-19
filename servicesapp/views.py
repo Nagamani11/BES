@@ -226,7 +226,7 @@ def register_worker(request):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            profile = WorkerProfile.objects.create(
+            WorkerProfile.objects.create(
                 full_name=data.get("full_name"),
                 phone_number=data.get("phone_number"),
                 email=data.get("email"),
@@ -245,10 +245,32 @@ def register_worker(request):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+# To display all the form registration employees that be display in Admin
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])  # Use IsAdminUser if admin-only
+def get_registered_employees(request):
+    try:
+        workers = WorkerProfile.objects.all().order_by('-created_at')
+        serializer = WorkerProfileSerializer(workers, many=True)
+        return Response({
+            "status": True,
+            "message": "All registered workers fetched successfully.",
+            "registered_employees": serializer.data
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response({
+            "status": False,
+            "error": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 # Recharge APIs
 
 # 1. Create a new recharge request
+
 
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID,
                                settings.RAZORPAY_KEY_SECRET))
