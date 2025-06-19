@@ -950,12 +950,44 @@ WORK_TYPE_KEYWORDS = {
     ]
 }
 
-MINIMUM_RECHARGE = 50
+WORK_TYPE_KEY_MAP = {
+    "beauty_salon": "Beauty and Salon",
+    "mens_salon": "Mens Salon",
+    "daily_helpers": "Daily Helpers",
+    "cooking_cleaning": "Cook and Clean",
+    "drivers": "Drivers",
+    "playzone": "Play Zone",
+    "care": "Child and Adults Care",
+    "petcare": "Pet Care",
+    "electrician": "Electrician and AC Service",
+    "tutors": "Tutors",
+    "plumber": "Plumber",
+    "decorators": "Decor Services",
+    "nursing": "Nursing",
+    "laundry": "Laundry",
+    "swimming": "Swimming",
+    # Also allow Title Case keys for direct match
+    "Beauty and Salon": "Beauty and Salon",
+    "Mens Salon": "Mens Salon",
+    "Daily Helpers": "Daily Helpers",
+    "Cook and Clean": "Cook and Clean",
+    "Drivers": "Drivers",
+    "Play Zone": "Play Zone",
+    "Child and Adults Care": "Child and Adults Care",
+    "Pet Care": "Pet Care",
+    "Electrician and AC Service": "Electrician and AC Service",
+    "Tutors": "Tutors",
+    "Plumber": "Plumber",
+    "Decor Services": "Decor Services",
+    "Nursing": "Nursing",
+    "Laundry": "Laundry",
+    "Swimming": "Swimming",
+}
 
+MINIMUM_RECHARGE = 50
 
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
-
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -971,7 +1003,6 @@ def get_worker_balance(phone_number):
     ).aggregate(total=Sum('amount'))['total'] or 0
     return credits - debits
 
-
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -980,19 +1011,18 @@ def deduct_worker_balance(phone_number, amount):
         is_paid=True
     )
 
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def worker_job_action(request):
     phone = request.data.get("phone")
     action = request.data.get("action")  # fetch, accept, cancel
-    booking_id = request.data.get("booking_id")  # This is the Payment.id (int)
+    booking_id = request.data.get("booking_id")  # This is Payment.id (not Orders.id)
+
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
     normalized_phone = normalize_phone(phone)
     worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
-    print(f"Worker found: {worker}")
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
@@ -1000,7 +1030,7 @@ def worker_job_action(request):
     now = timezone.now()
     cache_key = f"low_balance_notify_{worker.phone_number}"
     last_notify = cache.get(cache_key)
-    notify_interval = timedelta(minutes=10)  # or 15
+    notify_interval = timedelta(minutes=10)
 
     should_notify = (
         balance < MINIMUM_RECHARGE and
@@ -1017,7 +1047,7 @@ def worker_job_action(request):
             phone_number=worker.phone_number,
             message="Connects are over. Please recharge to continue accepting orders."
         )
-        cache.set(cache_key, now, timeout=60*60)  # Cache for 1 hour (or as needed)
+        cache.set(cache_key, now, timeout=60*60)
 
     if balance < MINIMUM_RECHARGE and action == "fetch":
         return Response({
@@ -1026,17 +1056,14 @@ def worker_job_action(request):
             "balance": float(balance)
         }, status=403)
 
-    keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
+    work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
+    keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
     if not keywords:
         return Response({"message": "No keywords mapped for this work type."}, status=204)
 
     # FETCH ACTION
     if action == "fetch":
-        # 1. Check if the worker has a recently completed order
-        last_order = Orders.objects.filter(
-            worker_phone=worker.phone_number
-        ).order_by('-updated_at').first()
-
+        last_order = Orders.objects.filter(worker_phone=worker.phone_number).order_by('-updated_at').first()
         if last_order and last_order.status == "Completed":
             notif_key = f"service_completed_notify_{worker.phone_number}_{last_order.id}"
             if not cache.get(notif_key):
@@ -1054,7 +1081,6 @@ def worker_job_action(request):
                 "balance": float(balance)
             })
 
-        # 2. Check for ongoing (Confirmed) order
         ongoing_order = Orders.objects.filter(
             worker_phone=worker.phone_number,
             status="Confirmed"
@@ -1074,7 +1100,6 @@ def worker_job_action(request):
             }
             return Response({"data": [result], "balance": float(balance)})
 
-        # 3. If no ongoing order, show new jobs
         accepted_orders = Orders.objects.values_list('booking_date', 'booking_time')
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
@@ -1107,56 +1132,57 @@ def worker_job_action(request):
 
         try:
             payment = Payment.objects.get(id=booking_id)
-
-            if Orders.objects.filter(
-                 booking_date=payment.booking_date,
-                 booking_time=payment.booking_time).exists():
-                return Response({"error": "This order is already accepted"}, status=400)
-
-            cut_amount = payment.amount * Decimal('0.10')
-            total_deduction = cut_amount
-
-            if payment.payment_method == "cash":
-                total_deduction += Decimal(str(payment.tax_amount or 0))
-                if balance < total_deduction:
-                    return Response(
-                      {"error": "Insufficient balance to accept this order."},
-                      status=403)
-                deduct_worker_balance(worker.phone_number, total_deduction)
-
-            order = Orders.objects.create(
-                customer_phone=payment.customer_phone,
-                subcategory_name=payment.subcategory_name,
-                booking_date=payment.booking_date,
-                booking_time=payment.booking_time,
-                service_date=payment.service_date or payment.booking_date,
-                total_amount=payment.amount,
-                status="Confirmed",
-                full_address=payment.full_address or "",
-                created_at=timezone.now(),
-                updated_at=timezone.now(),
-                worker_phone=worker.phone_number
-            )
-
-            payment.status = "Scheduled"
-            payment.save()
-
-            Notification.objects.create(
-                category="Order",
-                title="New Order Confirmed",
-                phone_number=worker.phone_number,
-                message=f"You accepted an order (Booking ID: {payment.id}) for {order.subcategory_name} on {order.service_date}.",
-                order=order
-            )
-
-            return Response({
-                "message": "Order accepted",
-                "booking_id": payment.id,
-                "balance": float(get_worker_balance(worker.phone_number))
-            })
-
         except Payment.DoesNotExist:
             return Response({"error": "Payment not found"}, status=404)
+
+        if Orders.objects.filter(
+            booking_date=payment.booking_date,
+            booking_time=payment.booking_time
+        ).exists():
+            return Response({"error": "This order is already accepted"}, status=400)
+
+        cut_amount = payment.amount * Decimal('0.10')
+        total_deduction = cut_amount
+
+        if payment.payment_method == "cash":
+            total_deduction += Decimal(str(payment.tax_amount or 0))
+            if balance < total_deduction:
+                return Response(
+                    {"error": "Insufficient balance to accept this order."},
+                    status=403)
+
+            deduct_worker_balance(worker.phone_number, total_deduction)
+
+        order = Orders.objects.create(
+            customer_phone=payment.customer_phone,
+            subcategory_name=payment.subcategory_name,
+            booking_date=payment.booking_date,
+            booking_time=payment.booking_time,
+            service_date=payment.service_date or payment.booking_date,
+            total_amount=payment.amount,
+            status="Confirmed",
+            full_address=payment.full_address or "",
+            created_at=timezone.now(),
+            updated_at=timezone.now(),
+            worker_phone=worker.phone_number
+        )
+
+        payment.status = "Scheduled"
+        payment.save()
+
+        Notification.objects.create(
+            category="Order",
+            title="New Order Confirmed",
+            phone_number=worker.phone_number,
+            message=f"You accepted an order (Booking ID: {payment.id}) for {order.subcategory_name} on {order.service_date}.",
+            order=order
+        )
+
+        return Response({
+            "message": "Order accepted",
+            "booking_id": payment.id,
+            "balance": float(get_worker_balance(worker.phone_number))
+        })
 
     # CANCEL ACTION
     elif action == "cancel":
@@ -1165,36 +1191,36 @@ def worker_job_action(request):
 
         try:
             payment = Payment.objects.get(id=booking_id)
-            order = Orders.objects.filter(
-                booking_date=payment.booking_date,
-                booking_time=payment.booking_time
-            ).first()
-            if not order:
-                return Response({"error": "Order not found"}, status=404)
-            order.status = "Cancelled"
-            order.updated_at = timezone.now()
-            order.save()
-
-            next_worker = WorkerProfile.objects.exclude(
-                phone_number=worker.phone_number
-            ).filter(work_type=worker.work_type).first()
-
-            if next_worker:
-                return Response({
-                    "message": "Order cancelled. Assign to next worker.",
-                    "next_worker_phone": next_worker.phone_number
-                })
-            else:
-                return Response(
-                    {"message": "Cancelled. No next worker available."})
-
         except Payment.DoesNotExist:
             return Response({"error": "Order not found"}, status=404)
+
+        order = Orders.objects.filter(
+            booking_date=payment.booking_date,
+            booking_time=payment.booking_time
+        ).first()
+
+        if not order:
+            return Response({"error": "Order not found"}, status=404)
+
+        order.status = "Cancelled"
+        order.updated_at = timezone.now()
+        order.save()
+
+        next_worker = WorkerProfile.objects.exclude(
+            phone_number=worker.phone_number
+        ).filter(work_type=worker.work_type).first()
+
+        if next_worker:
+            return Response({
+                "message": "Order cancelled. Assign to next worker.",
+                "next_worker_phone": next_worker.phone_number
+            })
+        else:
+            return Response({"message": "Cancelled. No next worker available."})
 
     return Response({"error": "Invalid action"}, status=400)
 
 
-# to display in orders
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def get_accepted_orders(request):
@@ -1202,39 +1228,35 @@ def get_accepted_orders(request):
     if not worker_phone:
         return Response({"error": "Phone number is required"}, status=400)
 
-    try:
-        def normalize_phone(phone):
-            return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
+    def normalize_phone(phone):
+        return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
 
-        normalized_phone = normalize_phone(worker_phone)
+    normalized_phone = normalize_phone(worker_phone)
+    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+    if not worker:
+        return Response({"error": "Worker not found"}, status=404)
 
-        worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
-        if not worker:
-            return Response({"error": "Worker not found"}, status=404)
+    work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
+    keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
 
-        keywords = WORK_TYPE_KEYWORDS.get(worker.work_type.lower(), [])
+    orders = Orders.objects.filter(
+        Q(status='Confirmed') | Q(status='Completed'),
+        worker_phone__endswith=normalized_phone,
+        subcategory_name__in=keywords
+    ).order_by('-created_at')
 
-        orders = Orders.objects.filter(
-            Q(status='Confirmed') | Q(status='Completed'),
-            worker_phone__endswith=normalized_phone,  # Match accepted worker
-            subcategory_name__in=keywords
-        ).order_by('-created_at')
+    results = []
+    for order in orders:
+        results.append({
+            "order_id": order.id,
+            "subcategory_name": order.subcategory_name,
+            "customer_phone": order.customer_phone,
+            "status": order.status,
+            "service_date": order.service_date.strftime("%Y-%m-%d"),
+            "time": getattr(order, "time", ""),  # If you have a time field
+            "total_amount": str(order.total_amount),
+            "full_address": order.full_address,
+            "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        })
 
-        results = []
-        for order in orders:
-            results.append({
-                "order_id": order.id,
-                "subcategory_name": order.subcategory_name,
-                "customer_phone": order.customer_phone,
-                "status": order.status,
-                "service_date": order.service_date.strftime("%Y-%m-%d"),
-                "time": order.time,
-                "total_amount": str(order.total_amount),
-                "full_address": order.full_address,
-                "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            })
-
-        return Response({"data": results})
-
-    except Exception as e:
-        return Response({"error": str(e)}, status=500)
+    return Response({"data": results})
