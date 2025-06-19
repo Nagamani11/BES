@@ -21,14 +21,14 @@ class WorkerProfileSerializer(serializers.ModelSerializer):
         model = WorkerProfile
         fields = '__all__'
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Example: Make 'certification_file' required for tutors/nursing
-        work_type = self.initial_data.get('work_type') if self.initial_data else None
-        if work_type in ['tutors', 'nursing']:
-            self.fields['certification_file'].required = True
-        else:
-            self.fields['certification_file'].required = False
+    def validate(self, data):
+        work_type = data.get('work_type')
+        if work_type in ['tutors', 'nursing'] and not data.get(
+             'certification_file'):
+            raise serializers.ValidationError({
+                "certification_file": "Certification file is required for tutors and nursing."
+            })
+        return data
 
 # Recharge models
 
