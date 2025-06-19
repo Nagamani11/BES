@@ -328,25 +328,31 @@ class Payment(models.Model):
         ("Completed", "Completed"),
         ("Failed", "Failed"),
     ]
-
     order_id = models.CharField(max_length=100, unique=True)
     customer_phone = models.CharField(max_length=15, null=True, blank=True)
     subcategory_name = models.CharField(max_length=100, null=True, blank=True)
     service_date = models.DateField(null=True, blank=True)
     full_address = models.TextField(null=True, blank=True)
-    tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    tax_amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                     default=0.00)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default="cash")
+    payment_method = models.CharField(max_length=20,
+                                      choices=PAYMENT_METHOD_CHOICES,
+                                      default="cash")
     transaction_id = models.CharField(max_length=100, null=True, blank=True)
     razorpay_order_id = models.CharField(max_length=255, null=True, blank=True)
-    razorpay_payment_id = models.CharField(max_length=100, blank=True, null=True)
-    razorpay_signature = models.CharField(max_length=100, blank=True, null=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="Pending")
+    razorpay_payment_id = models.CharField(max_length=100, blank=True,
+                                           null=True)
+    razorpay_signature = models.CharField(max_length=100, blank=True,
+                                          null=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES,
+                              default="Pending")
     paid_at = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     booking_date = models.DateField(default=timezone.now)
-    booking_time = models.CharField(max_length=50, default=datetime.now().strftime("%H:%M"))
+    booking_time = models.CharField(
+        max_length=50, default=datetime.now().strftime("%H:%M"))
 
     def __str__(self):
         return f"Payment #{self.id} - {self.subcategory_name} - {self.status}"
@@ -376,6 +382,7 @@ class Orders(models.Model):
     full_address = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()
+    worker_phone = models.CharField(max_length=20, null=True, blank=True)
 
     def __str__(self):
         return f"Orders #{self.id} - {self.status}"
