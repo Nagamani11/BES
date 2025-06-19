@@ -23,11 +23,13 @@ class WorkerProfileSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         work_type = data.get('work_type')
-        if work_type in ['tutors', 'nursing'] and not data.get(
-             'certification_file'):
+
+        # Validate certification file for Tutors and Nursing
+        if work_type in ['Tutors', 'Nursing'] and not data.get('certification_file'):
             raise serializers.ValidationError({
-                "certification_file": "Certification file is required for tutors and nursing."
+                "certification_file": "Certification file is required for Tutors and Nursing."
             })
+
         return data
 
 # Recharge models
