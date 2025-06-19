@@ -146,13 +146,11 @@ def verify_otp(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def worker_form(request):
-    serializer = WorkerProfileSerializer(data=request.data)
+    serializer = WorkerProfileSerializer(data=request.data, files=request.FILES)  # ✅ Include request.FILES
     if serializer.is_valid():
         serializer.save()
-        return Response({'message': 'Worker profile created successfully.'},
-                        status=status.HTTP_200_OK)
+        return Response({'message': 'Worker profile created successfully.'}, status=status.HTTP_200_OK)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 # GET  and POSTAPI for FORM
 
