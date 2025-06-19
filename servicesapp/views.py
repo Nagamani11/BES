@@ -28,7 +28,6 @@ from .serializers import OrderSerializer
 from .models import UserProfile
 from django.db import transaction
 from servicesapp.models import Orders
-from django.utils.timezone import now
 from decimal import Decimal
 
 logger = logging.getLogger(__name__)
@@ -773,117 +772,6 @@ def notifications(request):
 
     return Response({"notifications": data})
 
-
-# servicesapp/views.py
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def copy_booking_order(request):
-    booking_id = request.data.get("booking_id")
-
-    try:
-        booking = Booking.objects.get(id=booking_id)
-        order = Orders.objects.create(
-            customer_phone=booking.customer_phone,
-            subcategory_name=booking.subcategory_name,
-            booking_date=booking.booking_date,
-            service_date=booking.service_date,
-            time=booking.time,
-            total_amount=booking.total_amount,
-            status=booking.status,
-            full_address=booking.full_address,
-            created_at=booking.created_at,
-            updated_at=booking.updated_at,
-        )
-        return Response({"message": "Order created successfully",
-                         "order_id": order.id})
-    except Booking.DoesNotExist:
-        return Response({"error": "Booking not found"}, status=404)
-
-
-# views.py
-
-
-WORK_TYPE_KEYWORDS = {
-    'daily_helpers': ["Welder", "Fitter", "Mason", "Carpenter", "Painter"],
-    'cooking_cleaning': ["Cook", "House Cleaner", "Dishwasher"],
-    'drivers': ["Personal Driver", "Long Trip Driver", "Rental Car Driver"],
-    'playzone': ["Kids Play Zone", "Box Cricket", "Badminton"],
-    'care': ["Childcare Provider", "Elder Caregiver", "Special Needs Care"],
-    'petcare': ["Dog Walker", "Pet Groomer", "Pet Sitter"],
-    'beauty_salon': ["Eyebrows Shaping", "Mehndi", "Makeup Services",
-                     "Nail Art", "Pedicure and Manicure",
-                     "Paper Painting and Decor"],
-    'electrician': ["Wiring and Installation", "Fan and Light Repair",
-                    "Switchboard Fixing", "Appliance Repair", "AC Repair"],
-    'tutors': ["School Tutor", "BTech Subjects", "Spoken English Trainer",
-               "Software Courses Java", "Software Courses Python",
-               "Software Courses Web Dev", "Deep Learning", "NLP",
-               "Machine Learning"],
-    'plumber': ["Leak Repair", "Tap and Pipe Installation",
-                "Water Tank Cleaning", "Drainage and Sewage"],
-    'decorators': ["Event Decor", "Birthday and Party Decoration"],
-    'nursing': ["Injection and IV Drip", "Wound Dressing",
-                "Blood Pressure and Diabetes Monitoring", "Physiotherapy"],
-}
-
-
-# def normalize_phone(phone):
-#     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
-
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def workers_orders(request):
-    phone = request.GET.get('phone')
-    if not phone:
-        return Response({"error": "Phone number is required"}, status=400)
-
-    normalized_phone = normalize_phone(phone)
-
-    workers = WorkerProfile.objects.filter(
-        phone_number__endswith=normalized_phone)
-    if not workers.exists():
-        return Response({"error": "Worker profile not found"}, status=404)
-
-    worker = workers.first()
-
-    if not worker.work_type:
-        return Response({"error": "Worker work type not defined"}, status=400)
-
-    keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
-    if not keywords:
-        return Response({"message": "No keywords mapped for this work type."},
-                        status=204)
-
-    # Create filter
-    keyword_query = Q()
-    for keyword in keywords:
-        if keyword:
-            keyword_query |= Q(subcategory_name__icontains=keyword)
-
-    bookings = Booking.objects.filter(keyword_query)
-    orders = Orders.objects.filter(keyword_query)
-
-    combined = list(bookings) + list(orders)
-    combined.sort(key=lambda obj: getattr
-                  (obj, 'created_at', now()), reverse=True)
-
-    results = []
-    for obj in combined:
-        results.append({
-            "source": "booking" if isinstance(obj, Booking) else "order",
-            "subcategory_name": obj.subcategory_name,
-            "customer_phone": obj.customer_phone,
-            "status": obj.status,
-            "service_date": obj.service_date,
-            "created_at": obj.created_at,
-            "total_amount": str(obj.total_amount),
-        })
-
-    return Response(results)
-
 # In single API
 
 
@@ -945,7 +833,7 @@ WORK_TYPE_KEYWORDS = {
     ]
 }
 
-MINIMUM_RECHARGE = 250
+MINIMUM_RECHARGE = 50
 
 
 def normalize_phone(phone):
@@ -982,7 +870,6 @@ def worker_job_action(request):
     phone = request.data.get("phone")
     action = request.data.get("action")  # fetch, accept, cancel
     booking_id = request.data.get("booking_id")  # This is the Payment.id (int)
-    
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
@@ -1009,11 +896,13 @@ def worker_job_action(request):
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
-        return Response({"message": "No keywords mapped for this work type."}, status=204)
+        return Response({"message": "No keywords mapped for this work type."},
+                        status=204)
 
     # FETCH ACTION
     if action == "fetch":
-        accepted_orders = Orders.objects.values_list('booking_date', 'booking_time')
+        accepted_orders = Orders.objects.values_list(
+            'booking_date', 'booking_time')
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
             status__in=["Pending", "Completed"]
@@ -1041,13 +930,17 @@ def worker_job_action(request):
     # ACCEPT ACTION
     elif action == "accept":
         if not booking_id:
-            return Response({"error": "booking_id is required for accept"}, status=400)
+            return Response({"error": "booking_id is required for accept"},
+                            status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id)
 
-            if Orders.objects.filter(booking_date=payment.booking_date, booking_time=payment.booking_time).exists():
-                return Response({"error": "This order is already accepted"}, status=400)
+            if Orders.objects.filter(
+                 booking_date=payment.booking_date,
+                 booking_time=payment.booking_time).exists():
+                return Response({"error": "This order is already accepted"},
+                                status=400)
 
             cut_amount = payment.amount * Decimal('0.10')
             total_deduction = cut_amount
@@ -1055,7 +948,9 @@ def worker_job_action(request):
             if payment.payment_method == "cash":
                 total_deduction += Decimal(str(payment.tax_amount or 0))
                 if balance < total_deduction:
-                    return Response({"error": "Insufficient balance to accept this order."}, status=403)
+                    return Response(
+                      {"error": "Insufficient balance to accept this order."},
+                      status=403)
                 deduct_worker_balance(worker.phone_number, total_deduction)
 
             order = Orders.objects.create(
@@ -1068,7 +963,8 @@ def worker_job_action(request):
                 status="Confirmed",
                 full_address=payment.full_address or "",
                 created_at=timezone.now(),
-                updated_at=timezone.now()
+                updated_at=timezone.now(),
+                worker_phone=worker.phone_number
             )
 
             payment.status = "Scheduled"
@@ -1094,7 +990,8 @@ def worker_job_action(request):
     # CANCEL ACTION
     elif action == "cancel":
         if not booking_id:
-            return Response({"error": "booking_id is required for cancel"}, status=400)
+            return Response({"error": "booking_id is required for cancel"},
+                            status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id)
@@ -1118,7 +1015,8 @@ def worker_job_action(request):
                     "next_worker_phone": next_worker.phone_number
                 })
             else:
-                return Response({"message": "Cancelled. No next worker available."})
+                return Response(
+                    {"message": "Cancelled. No next worker available."})
 
         except Payment.DoesNotExist:
             return Response({"error": "Order not found"}, status=404)
@@ -1133,11 +1031,25 @@ def get_accepted_orders(request):
     worker_phone = request.query_params.get('phone')
     if not worker_phone:
         return Response({"error": "Phone number is required"}, status=400)
+
     try:
-        # Get orders that are either Confirmed or Completed
+        def normalize_phone(phone):
+            return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
+
+        normalized_phone = normalize_phone(worker_phone)
+
+        worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+        if not worker:
+            return Response({"error": "Worker not found"}, status=404)
+
+        keywords = WORK_TYPE_KEYWORDS.get(worker.work_type.lower(), [])
+
         orders = Orders.objects.filter(
-            Q(status='Confirmed') | Q(status='Completed')
+            Q(status='Confirmed') | Q(status='Completed'),
+            worker_phone__endswith=normalized_phone,  # Match accepted worker
+            subcategory_name__in=keywords
         ).order_by('-created_at')
+
         results = []
         for order in orders:
             results.append({
@@ -1146,11 +1058,13 @@ def get_accepted_orders(request):
                 "customer_phone": order.customer_phone,
                 "status": order.status,
                 "service_date": order.service_date.strftime("%Y-%m-%d"),
-                "time": order.time.strftime("%H:%M"),
+                "time": order.time,
                 "total_amount": str(order.total_amount),
                 "full_address": order.full_address,
                 "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             })
+
         return Response({"data": results})
+
     except Exception as e:
         return Response({"error": str(e)}, status=500)
