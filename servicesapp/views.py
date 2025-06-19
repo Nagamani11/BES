@@ -140,6 +140,8 @@ def verify_otp(request):
         return Response({"error": "Something went wrong", "details": str(e)},
                         status=500)
 
+# Form API for Worker Profile
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -150,6 +152,98 @@ def worker_form(request):
         return Response({'message': 'Worker profile created successfully.'},
                         status=status.HTTP_200_OK)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# GET  and POSTAPI for FORM
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def register_worker(request):
+    def format_choices(choices):
+        return [{"value": c[0], "label": c[1]} for c in choices]
+
+    if request.method == "GET":
+        # Form structure response
+        form_fields = {
+            "full_name": {"type": "text", "required": True, "label": "Full Name"},
+            "phone_number": {"type": "text", "required": True, "label": "Phone Number"},
+            "email": {"type": "email", "required": True, "label": "Email Address"},
+            "work_type": {
+                "type": "select",
+                "required": True,
+                "label": "Service Type",
+                "choices": format_choices(WorkerProfile.WORK_TYPE_CHOICES),
+            },
+            "education": {
+                "type": "select",
+                "required": False,
+                "label": "Education Level",
+                "choices": format_choices(WorkerProfile.EDUCATION_LEVEL_CHOICES),
+            },
+            "years_of_experience": {
+                "type": "number",
+                "required": False,
+                "label": "Years of Experience"
+            },
+            "experience_country": {
+                "type": "select",
+                "required": False,
+                "label": "Country of Experience",
+                "choices": format_choices(WorkerProfile.COUNTRY_CHOICES),
+            },
+            "specialization": {"type": "text", "required": False, "label": "Specialization"},
+            "document_type": {
+                "type": "select",
+                "required": True,
+                "label": "Document Type",
+                "choices": format_choices(WorkerProfile.DOCUMENT_TYPE_CHOICES),
+            },
+            "document_file": {"type": "file", "required": True, "label": "Document File"},
+            "certification_file": {
+                "type": "file",
+                "required": False,
+                "label": "Certification File"
+            },
+            "photo": {"type": "file", "required": True, "label": "Profile Photo"},
+        }
+
+        conditional_required_fields = {
+            "certification_file": ["tutors", "nursing"]
+        }
+
+        return Response({
+            "form_fields": form_fields,
+            "conditional_required": conditional_required_fields
+        })
+
+    elif request.method == "POST":
+        data = request.data
+        work_type = data.get("work_type")
+
+        if work_type in ["tutors", "nursing"] and not request.FILES.get("certification_file"):
+            return Response({"error": "Certification file is required for tutors and nursing."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            profile = WorkerProfile.objects.create(
+                full_name=data.get("full_name"),
+                phone_number=data.get("phone_number"),
+                email=data.get("email"),
+                work_type=work_type,
+                education=data.get("education"),
+                years_of_experience=data.get("years_of_experience") or None,
+                experience_country=data.get("experience_country"),
+                specialization=data.get("specialization"),
+                document_type=data.get("document_type"),
+                document_file=request.FILES.get("document_file"),
+                photo=request.FILES.get("photo"),
+                certification_file=request.FILES.get("certification_file")
+            )
+            return Response({"message": "Registration successful"}, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 # Recharge APIs
