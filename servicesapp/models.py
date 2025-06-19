@@ -58,7 +58,7 @@ class WorkerProfile(models.Model):
         ('Child and Adults Care', 'Child and Adults Care'),
         ('Pet Care', 'Pet Care'),
         ('Beauty and Salon', 'Beauty and Salon'),
-        ("Men's Salon", "Men's Salon"),
+        ("Mens Salon", "Men's Salon"),
         ('Electrician and AC Service', 'Electrician and AC Service'),
         ('Tutors', 'Tutors'),
         ('Plumber', 'Plumber'),
