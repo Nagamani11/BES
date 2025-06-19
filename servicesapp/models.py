@@ -1,4 +1,3 @@
-
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
@@ -35,21 +34,19 @@ class OTP(models.Model):
 
 
 # For the worker profile model form
+from django.db import models
+from django.core.validators import FileExtensionValidator
 
 def worker_photo_path(instance, filename):
     return f'workers/{instance.id}/photos/{filename}'
 
-
 def worker_document_path(instance, filename):
     return f'workers/{instance.id}/documents/{filename}'
-
 
 def worker_certification_path(instance, filename):
     return f'workers/{instance.id}/certifications/{filename}'
 
-
 class WorkerProfile(models.Model):
-    # Work Type Choices
     WORK_TYPE_CHOICES = [
         ('Daily Helpers', 'Daily Helpers'),
         ('Cook and Clean', 'Cook and Clean'),
@@ -68,7 +65,6 @@ class WorkerProfile(models.Model):
         ('Swimming', 'Swimming'),
     ]
 
-    # Education Level Choices
     EDUCATION_LEVEL_CHOICES = [
         ('High School', 'High School'),
         ('Diploma', 'Diploma'),
@@ -87,7 +83,6 @@ class WorkerProfile(models.Model):
         ('Other', 'Other'),
     ]
 
-    # Country Choices
     COUNTRY_CHOICES = [
         ('India', 'India'),
         ('United State', 'United State'),
@@ -98,7 +93,6 @@ class WorkerProfile(models.Model):
         ('Australia', 'Australia'),
     ]
 
-    # Document Type Choices
     DOCUMENT_TYPE_CHOICES = [
         ('Aadhar Card', 'Aadhar Card'),
         ('PAN Card', 'PAN Card'),
@@ -140,27 +134,11 @@ class WorkerProfile(models.Model):
         validators=[FileExtensionValidator(['jpg', 'jpeg', 'png'])]
     )
 
-    document_type = models.CharField(
-        max_length=50,
-        choices=DOCUMENT_TYPE_CHOICES,
-        blank=True,
-        null=True
-    )
-    document_file = models.FileField(
-        upload_to=worker_document_path,
-        validators=[FileExtensionValidator([
-            'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'])],
-        blank=True,
-        null=True
-    )
-
-    certification_file = models.FileField(
-        upload_to=worker_certification_path,
-        validators=[FileExtensionValidator([
-            'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'])],
-        blank=True,
-        null=True
-    )
+    # Multiple documents and certifications as JSON
+    document_types = models.JSONField(default=list, blank=True, null=True)
+    document_files = models.JSONField(default=list, blank=True, null=True)
+    certification_types = models.JSONField(default=list, blank=True, null=True)
+    certification_files = models.JSONField(default=list, blank=True, null=True)
 
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
@@ -172,6 +150,7 @@ class WorkerProfile(models.Model):
     @property
     def is_tutor_or_nurse(self):
         return self.work_type in ['tutors', 'nursing']
+
 
 # Recharge Transaction Model
 
