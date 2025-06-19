@@ -17,33 +17,17 @@ class OTPSerializer(serializers.ModelSerializer):
 
 
 class WorkerProfileSerializer(serializers.ModelSerializer):
-    photo = serializers.ImageField(required=True)
-    documents = serializers.JSONField(required=True)
-    certifications = serializers.JSONField(required=False)
-
     class Meta:
         model = WorkerProfile
-        fields = [
-            'full_name', 'phone_number', 'email', 'work_type', 'education',
-            'years_of_experience', 'experience_country', 'specialization',
-            'photo', 'documents', 'certifications'
-        ]
+        fields = '__all__'
 
     def validate(self, data):
         work_type = data.get('work_type')
-        if work_type in ['tutors', 'nursing']:
-            if not data.get('education'):
-                raise serializers.ValidationError({'education': 'This field is required for tutors/nursing.'})
-            if not data.get('years_of_experience'):
-                raise serializers.ValidationError({'years_of_experience': 'This field is required for tutors/nursing.'})
-            if not data.get('experience_country'):
-                raise serializers.ValidationError({'experience_country': 'This field is required for tutors/nursing.'})
-            if not data.get('specialization'):
-                raise serializers.ValidationError({'specialization': 'This field is required for tutors/nursing.'})
-            if not data.get('certifications'):
-                raise serializers.ValidationError({'certifications': 'At least one certification is required for tutors/nursing.'})
-        if not data.get('documents'):
-            raise serializers.ValidationError({'documents': 'At least one document is required.'})
+        if work_type in ['tutors', 'nursing'] and not data.get(
+             'certification_file'):
+            raise serializers.ValidationError({
+                "certification_file": "Certification file is required for tutors and nursing."
+            })
         return data
 
 # Recharge models
