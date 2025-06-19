@@ -368,7 +368,6 @@ class Orders(models.Model):
         ('Completed', 'Completed'),
         ('Cancelled', 'Cancelled'),
     )
-
     customer_phone = models.CharField(max_length=15)
     subcategory_name = models.CharField(max_length=100, blank=True)
     booking_date = models.DateField()
