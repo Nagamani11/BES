@@ -144,6 +144,7 @@ def verify_otp(request):
                         status=500)
 
 # Form API for Worker Profile
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def worker_form(request):
@@ -1196,7 +1197,8 @@ def get_accepted_orders(request):
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
-    work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
+    # No WORK_TYPE_KEY_MAP anymore
+    work_type_key = worker.work_type
     keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
 
     orders = Orders.objects.filter(
@@ -1213,7 +1215,7 @@ def get_accepted_orders(request):
             "customer_phone": order.customer_phone,
             "status": order.status,
             "service_date": order.service_date.strftime("%Y-%m-%d"),
-            "time": getattr(order, "time", ""),  # If you have a time field
+            "time": getattr(order, "time", ""),  # Optional field
             "total_amount": str(order.total_amount),
             "full_address": order.full_address,
             "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
