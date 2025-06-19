@@ -29,6 +29,7 @@ urlpatterns = [
     path('verify_otp/', views.verify_otp, name='verify_otp'),
     # Form API
     path('worker_form/', views.worker_form, name='worker_form'),
+    path('register_worker/', views.register_worker, name='register_worker'),
     # Recharge APIs
     path('get_balance/', views.get_balance, name='get_balance'),
     path('create_recharge/', views.create_recharge, name='create_recharge'),
