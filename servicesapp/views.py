@@ -29,6 +29,7 @@ from .models import UserProfile
 from django.db import transaction
 from servicesapp.models import Orders
 from decimal import Decimal
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -880,19 +881,34 @@ def worker_job_action(request):
         return Response({"error": "Worker not found"}, status=404)
 
     balance = get_worker_balance(worker.phone_number)
-    if balance < MINIMUM_RECHARGE:
+    now = timezone.now()
+    cache_key = f"low_balance_notify_{worker.phone_number}"
+    last_notify = cache.get(cache_key)
+    notify_interval = timedelta(minutes=10)  # or 15
+
+    should_notify = (
+        balance < MINIMUM_RECHARGE and
+        (
+            not last_notify or
+            now - last_notify > notify_interval
+        )
+    )
+
+    if should_notify:
         Notification.objects.create(
             category="Recharge",
             title="Low Connects",
             phone_number=worker.phone_number,
             message="Connects are over. Please recharge to continue accepting orders."
         )
-        if action == "fetch":
-            return Response({
-                "error": "Low balance",
-                "message": "Connects are over. Please recharge to continue accepting orders.",
-                "balance": float(balance)
-            }, status=403)
+        cache.set(cache_key, now, timeout=60*60)  # Cache for 1 hour (or as needed)
+
+    if balance < MINIMUM_RECHARGE and action == "fetch":
+        return Response({
+            "error": "Low balance",
+            "message": "Connects are over. Please recharge to continue accepting orders.",
+            "balance": float(balance)
+        }, status=403)
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
