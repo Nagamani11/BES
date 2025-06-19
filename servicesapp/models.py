@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from django.core.validators import FileExtensionValidator
 from django.contrib.auth import get_user_model
 from datetime import time
-
 User = get_user_model()
 
 
@@ -50,24 +49,26 @@ def worker_certification_path(instance, filename):
 
 
 class WorkerProfile(models.Model):
+    # Work Type Choices
     WORK_TYPE_CHOICES = [
-        ('daily_helpers', 'Daily Helpers'),
-        ('cooking_cleaning', 'Cook and Clean'),
-        ('drivers', 'Drivers'),
-        ('playzone', 'Play Zone'),
-        ('care', 'Child and Adults Care'),
-        ('petcare', 'Pet Care'),
-        ('beauty_salon', 'Beauty and Salon'),
-        ('mens_salon', "Men's Salon"),
-        ('electrician', 'Electrician and AC Service'),
-        ('tutors', 'Tutors'),
-        ('plumber', 'Plumber'),
-        ('decorators', 'Decor Services'),
-        ('nursing', 'Nursing'),
-        ('laundry', 'Laundry'),
-        ('swimming', 'Swimming'),
+        ('daily_helpers', 'Daily Helpers'),                 # 1
+        ('cooking_cleaning', 'Cook and Clean'),             # 2
+        ('drivers', 'Drivers'),                             # 3
+        ('playzone', 'Play Zone'),                          # 4
+        ('care', 'Child and Adults Care'),                  # 5
+        ('petcare', 'Pet Care'),                            # 6
+        ('beauty_salon', 'Beauty and Salon'),               # 7
+        ('mens_salon', "Men's Salon"),                      # 8  ← Newly added
+        ('electrician', 'Electrician and AC Service'),      # 9
+        ('tutors', 'Tutors'),                               # 10
+        ('plumber', 'Plumber'),                             # 11
+        ('decorators', 'Decor Services'),                   # 12
+        ('nursing', 'Nursing'),                             # 13
+        ('laundry', 'Laundry'),                             # 14
+        ('swimming', 'Swimming'),                           # 15
     ]
 
+    # Education Level Choices
     EDUCATION_LEVEL_CHOICES = [
         ('high_school', 'High School'),
         ('diploma', 'Diploma'),
@@ -86,6 +87,7 @@ class WorkerProfile(models.Model):
         ('other', 'Other'),
     ]
 
+    # Country Choices
     COUNTRY_CHOICES = [
         ('india', 'India'),
         ('usa', 'United State'),
@@ -96,22 +98,40 @@ class WorkerProfile(models.Model):
         ('australia', 'Australia'),
     ]
 
+    # Document Type Choices
+    DOCUMENT_TYPE_CHOICES = [
+        ('aadhar', 'Aadhar Card'),
+        ('pan', 'PAN Card'),
+        ('degree', 'Degree Certificate'),
+        ('other_cert', 'Other Certification'),
+        ('cv', 'CV/Resume'),
+        ('id_proof', 'ID Proof'),
+        ('teaching_cert', 'Teaching Certification'),
+        ('medical_cert', 'Medical Certification'),
+    ]
+
     # Personal Information
     full_name = models.CharField(max_length=100)
-    phone_number = models.CharField(max_length=15, unique=True)
+    phone_number = models.CharField(max_length=15)
     email = models.EmailField()
 
     # Work Information
     work_type = models.CharField(max_length=50, choices=WORK_TYPE_CHOICES)
     years_of_experience = models.PositiveIntegerField(blank=True, null=True)
     experience_country = models.CharField(
-        max_length=50, choices=COUNTRY_CHOICES, blank=True, null=True
+        max_length=50,
+        choices=COUNTRY_CHOICES,
+        blank=True,
+        null=True
     )
     specialization = models.CharField(max_length=255, blank=True, null=True)
 
     # Education Information
     education = models.CharField(
-        max_length=50, choices=EDUCATION_LEVEL_CHOICES, blank=True, null=True
+        max_length=50,
+        choices=EDUCATION_LEVEL_CHOICES,
+        blank=True,
+        null=True
     )
 
     # File Uploads
@@ -122,10 +142,29 @@ class WorkerProfile(models.Model):
         validators=[FileExtensionValidator(['jpg', 'jpeg', 'png'])]
     )
 
-    # Multiple documents/certifications as JSON (store file info as JSON)
-    documents = models.JSONField(default=list, blank=True)
-    certifications = models.JSONField(default=list, blank=True)
+    document_type = models.CharField(
+        max_length=50,
+        choices=DOCUMENT_TYPE_CHOICES,
+        blank=True,
+        null=True
+    )
+    document_file = models.FileField(
+        upload_to=worker_document_path,
+        validators=[FileExtensionValidator([
+            'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'])],
+        blank=True,
+        null=True
+    )
 
+    certification_file = models.FileField(
+        upload_to=worker_certification_path,
+        validators=[FileExtensionValidator([
+            'pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'])],
+        blank=True,
+        null=True
+    )
+
+    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
