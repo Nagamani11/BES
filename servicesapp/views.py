@@ -893,59 +893,59 @@ def notifications(request):
 
 
 WORK_TYPE_KEYWORDS = {
-    'daily_helpers': [  # Category ID 1
+    'Daily Helpers': [  # Category ID 1
         "Welder", "Fitter", "Mason", "Carpenter", "Painter",
         "Daily Helper", "Water Tank Cleaning"
     ],
-    'cooking_cleaning': [  # Category ID 2
+    'Cook and Clean': [  # Category ID 2
         "Cook", "House Cleaner", "Dishwasher"
     ],
-    'drivers': [  # Category ID 3
+    'Drivers': [  # Category ID 3
         "Personal Driver", "Long Trip Driver", "Rental Car Driver"
     ],
-    'playzone': [  # Category ID 4
+    'Play Zone': [  # Category ID 4
         "Kids Play Zone", "Box Cricket", "Badminton"
     ],
-    'care': [  # Category ID 5
+    'Child and Adults Care': [  # Category ID 5
         "Childcare Provider", "Elder Caregiver", "Special Needs Care"
     ],
-    'petcare': [  # Category ID 6
+    'Pet Care': [  # Category ID 6
         "Dog Walker", "Pet Groomer", "Pet Care Taker", "Pet Home Service"
     ],
-    'beauty_salon': [  # Category ID 7
+    'Beauty and Salon': [  # Category ID 7
         "Eyebrows Shaping", "Mehndi", "Makeup Services", "Nail Art",
         "Pedicure and Manicure", "Waxing Basics", "Waxing Premium",
         "Haircut", "Head Massage", "Body Massage"
     ],
-    'mens_salon': [  # Category ID 8
+    'Mens Salon': [  # Category ID 8
         "Haircut", "Style Haircut (Creative)", "Oil Head Massage",
         "Hair Colour", "Facial (Normal)", "Body Massage (Normal)", "Shaving or Trimming"
     ],
-    'electrician': [  # Category ID 9
+    'Electrician and AC Service': [  # Category ID 9
         "Wiring and Installation", "Fan and Light Repair",
         "Switchboard Fixing", "Appliance Repair", "AC Repair"
     ],
-    'tutors': [  # Category ID 10
+    'Tutors': [  # Category ID 10
         "School Tutor", "BTech Subjects", "Spoken English Trainer",
         "Software Courses Java", "Software Courses Python"
     ],
-    'plumber': [  # Category ID 11
+    'Plumber': [  # Category ID 11
         "Leak Repair", "Tap and Pipe Installation", "Drainage and Sewage"
     ],
-    'decorators': [  # Category ID 12
+    'Decor Services': [  # Category ID 12
         "Event Decor", "Birthday and Party Decoration",
         "DJ", "Event Lighting", "Event Tent House"
     ],
-    'nursing': [  # Category ID 13
+    'Nursing': [  # Category ID 13
         "Injection and IV Drip", "Wound Dressing",
         "Blood Pressure and Diabetes Monitoring",
         "Orthopedic Physiotherapy", "Neurological Physiotherapy",
         "Pediatric Physiotherapy"
     ],
-    'laundry': [  # Category ID 14
+    'Laundry': [  # Category ID 14
         "Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"
     ],
-    'swimming': [  # Category ID 15
+    'Swimming': [  # Category ID 15
         "Kids Swimming", "Trainer Swim", "Adult Swimming"
     ]
 }
