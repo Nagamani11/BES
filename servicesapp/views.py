@@ -893,59 +893,59 @@ def notifications(request):
 
 
 WORK_TYPE_KEYWORDS = {
-    'Daily Helpers': [  # Category ID 1
+    'Daily Helpers': [
         "Welder", "Fitter", "Mason", "Carpenter", "Painter",
         "Daily Helper", "Water Tank Cleaning"
     ],
-    'Cook and Clean': [  # Category ID 2
+    'Cook and Clean': [
         "Cook", "House Cleaner", "Dishwasher"
     ],
-    'Drivers': [  # Category ID 3
+    'Drivers': [
         "Personal Driver", "Long Trip Driver", "Rental Car Driver"
     ],
-    'Play Zone': [  # Category ID 4
+    'Play Zone': [
         "Kids Play Zone", "Box Cricket", "Badminton"
     ],
-    'Child and Adults Care': [  # Category ID 5
+    'Child and Adults Care': [
         "Childcare Provider", "Elder Caregiver", "Special Needs Care"
     ],
-    'Pet Care': [  # Category ID 6
+    'Pet Care': [
         "Dog Walker", "Pet Groomer", "Pet Care Taker", "Pet Home Service"
     ],
-    'Beauty and Salon': [  # Category ID 7
+    'Beauty and Salon': [
         "Eyebrows Shaping", "Mehndi", "Makeup Services", "Nail Art",
         "Pedicure and Manicure", "Waxing Basics", "Waxing Premium",
         "Haircut", "Head Massage", "Body Massage"
     ],
-    'Mens Salon': [  # Category ID 8
+    'Mens Salon': [
         "Haircut", "Style Haircut (Creative)", "Oil Head Massage",
         "Hair Colour", "Facial (Normal)", "Body Massage (Normal)", "Shaving or Trimming"
     ],
-    'Electrician and AC Service': [  # Category ID 9
+    'Electrician and AC Service': [
         "Wiring and Installation", "Fan and Light Repair",
         "Switchboard Fixing", "Appliance Repair", "AC Repair"
     ],
-    'Tutors': [  # Category ID 10
+    'Tutors': [
         "School Tutor", "BTech Subjects", "Spoken English Trainer",
         "Software Courses Java", "Software Courses Python"
     ],
-    'Plumber': [  # Category ID 11
+    'Plumber': [
         "Leak Repair", "Tap and Pipe Installation", "Drainage and Sewage"
     ],
-    'Decor Services': [  # Category ID 12
+    'Decor Services': [
         "Event Decor", "Birthday and Party Decoration",
         "DJ", "Event Lighting", "Event Tent House"
     ],
-    'Nursing': [  # Category ID 13
+    'Nursing': [
         "Injection and IV Drip", "Wound Dressing",
         "Blood Pressure and Diabetes Monitoring",
         "Orthopedic Physiotherapy", "Neurological Physiotherapy",
         "Pediatric Physiotherapy"
     ],
-    'Laundry': [  # Category ID 14
+    'Laundry': [
         "Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"
     ],
-    'Swimming': [  # Category ID 15
+    'Swimming': [
         "Kids Swimming", "Trainer Swim", "Adult Swimming"
     ]
 }
@@ -992,7 +992,7 @@ def worker_job_action(request):
 
     normalized_phone = normalize_phone(phone)
     worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
-
+    print(f"Worker found: {worker}")
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
@@ -1028,13 +1028,54 @@ def worker_job_action(request):
 
     keywords = WORK_TYPE_KEYWORDS.get(worker.work_type, [])
     if not keywords:
-        return Response({"message": "No keywords mapped for this work type."},
-                        status=204)
+        return Response({"message": "No keywords mapped for this work type."}, status=204)
 
     # FETCH ACTION
     if action == "fetch":
-        accepted_orders = Orders.objects.values_list(
-            'booking_date', 'booking_time')
+        # 1. Check if the worker has a recently completed order
+        last_order = Orders.objects.filter(
+            worker_phone=worker.phone_number
+        ).order_by('-updated_at').first()
+
+        if last_order and last_order.status == "Completed":
+            notif_key = f"service_completed_notify_{worker.phone_number}_{last_order.id}"
+            if not cache.get(notif_key):
+                Notification.objects.create(
+                    category="Order",
+                    title="Service Completed",
+                    phone_number=worker.phone_number,
+                    message=f"Your previous service ({last_order.subcategory_name}) is completed. You can now accept new orders.",
+                    order=last_order
+                )
+                cache.set(notif_key, True, timeout=60*60)
+            return Response({
+                "notification": "Service completed. You can now accept new orders.",
+                "data": [],
+                "balance": float(balance)
+            })
+
+        # 2. Check for ongoing (Confirmed) order
+        ongoing_order = Orders.objects.filter(
+            worker_phone=worker.phone_number,
+            status="Confirmed"
+        ).order_by('-created_at').first()
+
+        if ongoing_order:
+            result = {
+                "booking_id": ongoing_order.id,
+                "subcategory_name": ongoing_order.subcategory_name,
+                "customer_phone": ongoing_order.customer_phone,
+                "status": ongoing_order.status,
+                "service_date": ongoing_order.service_date,
+                "created_at": ongoing_order.created_at,
+                "total_amount": str(ongoing_order.total_amount),
+                "full_address": ongoing_order.full_address or "",
+                "service_time": ongoing_order.booking_time
+            }
+            return Response({"data": [result], "balance": float(balance)})
+
+        # 3. If no ongoing order, show new jobs
+        accepted_orders = Orders.objects.values_list('booking_date', 'booking_time')
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
             status__in=["Pending", "Completed"]
@@ -1046,7 +1087,7 @@ def worker_job_action(request):
         results = []
         for obj in payments:
             results.append({
-                "booking_id": obj.id,  # Use Payment.id as booking_id
+                "booking_id": obj.id,
                 "subcategory_name": obj.subcategory_name,
                 "customer_phone": obj.customer_phone,
                 "status": obj.status,
@@ -1062,8 +1103,7 @@ def worker_job_action(request):
     # ACCEPT ACTION
     elif action == "accept":
         if not booking_id:
-            return Response({"error": "booking_id is required for accept"},
-                            status=400)
+            return Response({"error": "booking_id is required for accept"}, status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id)
@@ -1071,8 +1111,7 @@ def worker_job_action(request):
             if Orders.objects.filter(
                  booking_date=payment.booking_date,
                  booking_time=payment.booking_time).exists():
-                return Response({"error": "This order is already accepted"},
-                                status=400)
+                return Response({"error": "This order is already accepted"}, status=400)
 
             cut_amount = payment.amount * Decimal('0.10')
             total_deduction = cut_amount
@@ -1112,7 +1151,7 @@ def worker_job_action(request):
 
             return Response({
                 "message": "Order accepted",
-                "booking_id": payment.id,  # Return booking_id
+                "booking_id": payment.id,
                 "balance": float(get_worker_balance(worker.phone_number))
             })
 
@@ -1122,8 +1161,7 @@ def worker_job_action(request):
     # CANCEL ACTION
     elif action == "cancel":
         if not booking_id:
-            return Response({"error": "booking_id is required for cancel"},
-                            status=400)
+            return Response({"error": "booking_id is required for cancel"}, status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id)
