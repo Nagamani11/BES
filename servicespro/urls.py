@@ -30,6 +30,8 @@ urlpatterns = [
     # Form API
     path('worker_form/', views.worker_form, name='worker_form'),
     path('register_worker/', views.register_worker, name='register_worker'),
+    path('get_registered_employees/', views.get_registered_employees,
+         name='get_registered_employees'),
     # Recharge APIs
     path('get_balance/', views.get_balance, name='get_balance'),
     path('create_recharge/', views.create_recharge, name='create_recharge'),
