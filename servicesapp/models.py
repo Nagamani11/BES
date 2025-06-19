@@ -51,63 +51,61 @@ def worker_certification_path(instance, filename):
 class WorkerProfile(models.Model):
     # Work Type Choices
     WORK_TYPE_CHOICES = [
-        ('daily_helpers', 'Daily Helpers'),                 # 1
-        ('cooking_cleaning', 'Cook and Clean'),             # 2
-        ('drivers', 'Drivers'),                             # 3
-        ('playzone', 'Play Zone'),                          # 4
-        ('care', 'Child and Adults Care'),                  # 5
-        ('petcare', 'Pet Care'),                            # 6
-        ('beauty_salon', 'Beauty and Salon'),               # 7
-        ('mens_salon', "Men's Salon"),                      # 8  ← Newly added
-        ('electrician', 'Electrician and AC Service'),      # 9
-        ('tutors', 'Tutors'),                               # 10
-        ('plumber', 'Plumber'),                             # 11
-        ('decorators', 'Decor Services'),                   # 12
-        ('nursing', 'Nursing'),                             # 13
-        ('laundry', 'Laundry'),                             # 14
-        ('swimming', 'Swimming'),                           # 15
+        ('Daily Helpers', 'Daily Helpers'),
+        ('Cook and Clean', 'Cook and Clean'),
+        ('Drivers', 'Drivers'),
+        ('Play Zone', 'Play Zone'),
+        ('Child and Adults Care', 'Child and Adults Care'),
+        ('Pet Care', 'Pet Care'),
+        ('Beauty and Salon', 'Beauty and Salon'),
+        ("Men's Salon", "Men's Salon"),
+        ('Electrician and AC Service', 'Electrician and AC Service'),
+        ('Tutors', 'Tutors'),
+        ('Plumber', 'Plumber'),
+        ('Decor Services', 'Decor Services'),
+        ('Nursing', 'Nursing'),
+        ('Laundry', 'Laundry'),
+        ('Swimming', 'Swimming'),
     ]
 
     # Education Level Choices
     EDUCATION_LEVEL_CHOICES = [
-        ('high_school', 'High School'),
-        ('diploma', 'Diploma'),
-        ('btech', 'B.Tech'),
-        ('be', 'B.E'),
-        ('bsc', 'B.Sc'),
-        ('ba', 'B.A'),
-        ('bcom', 'B.Com'),
-        ('mtech', 'M.Tech'),
-        ('msc', 'M.Sc'),
-        ('ma', 'M.A'),
-        ('mcom', 'M.Com'),
-        ('mba', 'MBA'),
-        ('pg_diploma', 'PG Diploma'),
-        ('phd', 'PhD'),
-        ('other', 'Other'),
+        ('High School', 'High School'),
+        ('Diploma', 'Diploma'),
+        ('B.Tech', 'B.Tech'),
+        ('B.E', 'B.E'),
+        ('B.Sc', 'B.Sc'),
+        ('B.A', 'B.A'),
+        ('B.Com', 'B.Com'),
+        ('M.Tech', 'M.Tech'),
+        ('M.Sc', 'M.Sc'),
+        ('M.A', 'M.A'),
+        ('M.Com', 'M.Com'),
+        ('MBA', 'MBA'),
+        ('PG Diploma', 'PG Diploma'),
+        ('PhD', 'PhD'),
+        ('Other', 'Other'),
     ]
 
     # Country Choices
     COUNTRY_CHOICES = [
-        ('india', 'India'),
-        ('usa', 'United State'),
-        ('singapore', 'Singapore'),
-        ('uk', 'United Kingdom'),
-        ('uae', 'United Arab Emirates'),
-        ('canada', 'Canada'),
-        ('australia', 'Australia'),
+        ('India', 'India'),
+        ('United State', 'United State'),
+        ('Singapore', 'Singapore'),
+        ('United Kingdom', 'United Kingdom'),
+        ('United Arab Emirates', 'United Arab Emirates'),
+        ('Canada', 'Canada'),
+        ('Australia', 'Australia'),
     ]
 
     # Document Type Choices
     DOCUMENT_TYPE_CHOICES = [
-        ('aadhar', 'Aadhar Card'),
-        ('pan', 'PAN Card'),
-        ('degree', 'Degree Certificate'),
-        ('other_cert', 'Other Certification'),
-        ('cv', 'CV/Resume'),
-        ('id_proof', 'ID Proof'),
-        ('teaching_cert', 'Teaching Certification'),
-        ('medical_cert', 'Medical Certification'),
+        ('Aadhar Card', 'Aadhar Card'),
+        ('PAN Card', 'PAN Card'),
+        ('Degree Certificate', 'Degree Certificate'),
+        ('Other Certification', 'Other Certification'),
+        ('CV/Resume', 'CV/Resume'),
+        ('ID Proof', 'ID Proof'),
     ]
 
     # Personal Information
