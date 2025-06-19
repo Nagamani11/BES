@@ -21,6 +21,15 @@ class WorkerProfileSerializer(serializers.ModelSerializer):
         model = WorkerProfile
         fields = '__all__'
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Example: Make 'certification_file' required for tutors/nursing
+        work_type = self.initial_data.get('work_type') if self.initial_data else None
+        if work_type in ['tutors', 'nursing']:
+            self.fields['certification_file'].required = True
+        else:
+            self.fields['certification_file'].required = False
+
 # Recharge models
 
 
