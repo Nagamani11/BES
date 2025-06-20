@@ -1116,14 +1116,17 @@ def worker_job_action(request):
 
     # FETCH ACTION
     if action == "fetch":
+        # Get all accepted orders as a set of tuples for fast lookup
         accepted_orders = set(Orders.objects.values_list('booking_date', 'booking_time', 'customer_phone'))
+        # Only show jobs from Payment table that are not already accepted (not in Orders)
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
-            status__in=["Pending", "Scheduled", "Completed"]  # <-- Fetch both Pending and Scheduled
+            status__in=["Pending", "Scheduled"]
         ).order_by("-created_at")
 
         results = []
         for obj in payments:
+            # Exclude if already accepted (same date, time, customer)
             if (obj.booking_date, obj.booking_time, obj.customer_phone) in accepted_orders:
                 continue
             results.append({
