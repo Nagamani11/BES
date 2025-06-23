@@ -1117,7 +1117,7 @@ def worker_job_action(request):
         }, status=403)
 
     work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
-    keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
+    keywords = [kw for kw in WORK_TYPE_KEYWORDS if kw in work_type_key]
     if not keywords:
         return Response({"message": "No keywords mapped for this work type."}, status=204)
 
