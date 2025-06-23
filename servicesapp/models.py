@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from django.core.validators import FileExtensionValidator
 from django.contrib.auth import get_user_model
 from datetime import time
+from django.core.validators import MinValueValidator, MaxValueValidator
 User = get_user_model()
 
 
@@ -34,8 +35,7 @@ class OTP(models.Model):
 
 
 # For the worker profile model form
-from django.db import models
-from django.core.validators import FileExtensionValidator
+
 
 def worker_photo_path(instance, filename):
     return f'workers/{instance.id}/photos/{filename}'
@@ -63,6 +63,9 @@ class WorkerProfile(models.Model):
         ('Nursing', 'Nursing'),
         ('Laundry', 'Laundry'),
         ('Swimming', 'Swimming'),
+        ('bike_taxi', 'Bike Taxi'),
+        ('auto_taxi', 'Auto Taxi'),
+        ('car_taxi', 'Car Taxi'),
     ]
 
     EDUCATION_LEVEL_CHOICES = [
@@ -100,6 +103,10 @@ class WorkerProfile(models.Model):
         ('Other Certification', 'Other Certification'),
         ('CV/Resume', 'CV/Resume'),
         ('ID Proof', 'ID Proof'),
+        ('id_proof', 'ID Proof'),
+        ('license', 'License'),
+        ('registration', 'Registration Certificate'),
+        ('vehicle_photo', 'Vehicle Photo'),
     ]
 
     # Personal Information
@@ -347,6 +354,7 @@ class Orders(models.Model):
         ('Completed', 'Completed'),
         ('Cancelled', 'Cancelled'),
     )
+    
     customer_phone = models.CharField(max_length=15)
     subcategory_name = models.CharField(max_length=100, blank=True)
     booking_date = models.DateField()
@@ -356,9 +364,163 @@ class Orders(models.Model):
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
     full_address = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField()
-    updated_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     worker_phone = models.CharField(max_length=20, null=True, blank=True)
+    rating = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
+    feedback_submitted = models.BooleanField(default=False)
+    feedback_text = models.TextField(blank=True, null=True)
+    contact_disabled = models.BooleanField(default=False)  # Explicit contact control
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def _str_(self):
+        return f"Order #{self.id} - {self.status}"
+
+    def disable_contact(self):
+        """Method to explicitly disable contact"""
+        self.contact_disabled = True
+        self.save()
+
+
+# Rapido and Taxi Location Models
+
+
+class ServicePerson(models.Model):
+    VEHICLE_TYPES = [
+        ('bike', 'Bike'),
+        ('auto', 'Auto'),
+        ('car', 'Car'),
+    ]
+
+    # Changed from User to WorkerProfile for better data structure
+    worker_profile = models.OneToOneField(
+        'WorkerProfile',  # Assuming WorkerProfile is defined in same models.py
+        on_delete=models.CASCADE,
+        related_name='service_person'
+    )
+    vehicle_type = models.CharField(
+        max_length=50,
+        choices=VEHICLE_TYPES,
+        help_text="Type of vehicle used for service"
+    )
+    vehicle_number = models.CharField(
+        max_length=20,
+        unique=True,
+        help_text="Registration number of the vehicle"
+    )
+    is_available = models.BooleanField(
+        default=True,
+        help_text="Whether the service person is currently available"
+    )
+    current_latitude = models.FloatField(
+        null=True, 
+        blank=True,
+        help_text="Last known latitude coordinate"
+    )
+    current_longitude = models.FloatField(
+        null=True, 
+        blank=True,
+        help_text="Last known longitude coordinate"
+    )
+    rating = models.FloatField(
+        default=0.0,
+        validators=[MinValueValidator(0)],
+        help_text="Average rating from 0 to 5"
+    )
+    total_rides = models.PositiveIntegerField(
+        default=0,
+        help_text="Total number of rides/completed services"
+    )
+
+    class Meta:
+        verbose_name = "Service Person"
+        verbose_name_plural = "Service People"
+        ordering = ['-rating']
 
     def __str__(self):
-        return f"Orders #{self.id} - {self.status}"
+        return f"{self.worker_profile.full_name} - {self.get_vehicle_type_display()} (Vehicle: {self.vehicle_number})"
+
+    @property
+    def current_location(self):
+        """Helper method to get location as tuple"""
+        if self.current_latitude and self.current_longitude:
+            return (self.current_latitude, self.current_longitude)
+        return None
+
+    def update_location(self, latitude, longitude):
+        """Method to update service person's location"""
+        self.current_latitude = latitude
+        self.current_longitude = longitude
+        self.save()
+
+
+class LocationHistory(models.Model):
+    service_person = models.ForeignKey(ServicePerson, on_delete=models.CASCADE)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+
+# getting Orders from Customer App
+class Ride(models.Model):
+    STATUS_CHOICES = [
+        ('requested', 'Requested'),
+        ('accepted', 'Accepted'),
+        ('started', 'Started'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    customer_phone = models.CharField(max_length=15)
+    pickup_latitude = models.FloatField()
+    pickup_longitude = models.FloatField()
+    pickup_address = models.TextField()
+
+    drop_latitude = models.FloatField()
+    drop_longitude = models.FloatField()
+    drop_address = models.TextField()
+
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='requested')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    distance = models.FloatField(null=True, blank=True)
+    vehicle_type = models.CharField(max_length=50, choices=ServicePerson.VEHICLE_TYPES)
+    otp_code = models.CharField(max_length=10, blank=True, null=True)
+    is_paid = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'otp_app_ride'
+        managed = False
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Ride #{self.id} - {self.customer_phone}"
+
+
+class Rider(models.Model):
+    ride = models.ForeignKey(Ride, on_delete=models.CASCADE)
+    rider_phone = models.CharField(max_length=15, null=True, blank=True)
+    customer_phone = models.CharField(max_length=15)
+    pickup_address = models.TextField()
+    drop_address = models.TextField()
+    pickup_latitude = models.FloatField()
+    pickup_longitude = models.FloatField()
+    drop_latitude = models.FloatField()
+    drop_longitude = models.FloatField()
+
+    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    distance = models.FloatField(null=True, blank=True)
+    vehicle_type = models.CharField(max_length=50)
+    otp_code = models.CharField(max_length=10, blank=True, null=True)
+    status = models.CharField(max_length=20)
+    is_paid = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
