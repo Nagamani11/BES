@@ -1416,9 +1416,8 @@ from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServiceP
 
 MINIMUM_RECHARGE = 50
 
-WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used internally
+WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used for validation
 
-# Mapping label → key
 WORK_TYPE_MAP = {
     'Bike Taxi': 'bike_taxi',
     'Auto Taxi': 'auto_taxi',
@@ -1471,7 +1470,6 @@ def rider_job_action(request):
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
-    # Normalize work_type (handle both label and value)
     work_type_key = WORK_TYPE_MAP.get(worker.work_type)
     if not work_type_key:
         return Response({
@@ -1479,7 +1477,7 @@ def rider_job_action(request):
             "hint": "Please set your work type to Bike Taxi / Auto Taxi / Car Taxi."
         }, status=403)
 
-    vehicle_type = work_type_key.split('_')[0]  # bike, auto, car
+    vehicle_type = work_type_key.split('_')[0]  # 'bike', 'auto', or 'car'
 
     service_person, created = ServicePerson.objects.get_or_create(
         worker_profile=worker,
@@ -1495,7 +1493,6 @@ def rider_job_action(request):
             "vehicle_type": service_person.vehicle_type
         }, status=403)
 
-    # Balance and low balance notification
     balance = get_worker_balance(worker.phone_number)
     now = timezone.now()
     cache_key = f"low_balance_notify_{worker.phone_number}"
@@ -1518,7 +1515,6 @@ def rider_job_action(request):
             "balance": float(balance)
         }, status=403)
 
-    # FETCH Ride Jobs
     if action == "fetch":
         assigned_ride_ids = Rider.objects.values_list('ride', flat=True)
         rides = Ride.objects.filter(
@@ -1539,7 +1535,6 @@ def rider_job_action(request):
 
         return Response({"data": data, "balance": float(balance)})
 
-    # ACCEPT Ride
     elif action == "accept":
         if not ride_id:
             return Response({"error": "ride_id is required for accept"}, status=400)
@@ -1595,7 +1590,6 @@ def rider_job_action(request):
             "balance": float(get_worker_balance(worker.phone_number))
         })
 
-    # CANCEL Ride
     elif action == "cancel":
         if not ride_id:
             return Response({"error": "ride_id is required for cancel"}, status=400)
