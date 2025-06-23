@@ -1403,6 +1403,8 @@ def service_persons(request, pk=None):
 
 
 # Rider Job action API
+
+
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -1416,7 +1418,7 @@ from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServiceP
 
 MINIMUM_RECHARGE = 50
 
-WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used for validation
+WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']
 
 WORK_TYPE_MAP = {
     'Bike Taxi': 'bike_taxi',
@@ -1427,8 +1429,10 @@ WORK_TYPE_MAP = {
     'car_taxi': 'car_taxi',
 }
 
+
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
+
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1446,6 +1450,7 @@ def get_worker_balance(phone_number):
 
     return credits - debits
 
+
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1453,6 +1458,7 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1477,7 +1483,7 @@ def rider_job_action(request):
             "hint": "Please set your work type to Bike Taxi / Auto Taxi / Car Taxi."
         }, status=403)
 
-    vehicle_type = work_type_key.split('_')[0]  # 'bike', 'auto', or 'car'
+    vehicle_type = work_type_key.split('_')[0]
 
     service_person, created = ServicePerson.objects.get_or_create(
         worker_profile=worker,
