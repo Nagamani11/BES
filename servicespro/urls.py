@@ -58,4 +58,12 @@ urlpatterns = [
          name='worker_job_action'),
     path('get_accepted_orders/', views.get_accepted_orders,
          name='get_accepted_orders'),
+    # Rapido and Taxi location APIs
+    path('service_persons/', views.service_persons, name='service_persons'),
+    path('service_persons/<int:pk>/', views.service_persons,
+         name='service_persons'),
+    path('rider_job_action/', views.rider_job_action,
+         name='rider_job_action'),
+    path('get_accepted_rides/', views.get_accepted_rides,
+         name='get_accepted_rides'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
