@@ -2,8 +2,8 @@ from rest_framework import serializers
 from .models import WorkerProfile
 from .models import OTP
 from .models import RechargeTransaction, Order, Recharge
-from .models import Notification
-from .models import Orders, Payment
+from .models import Notification, Ride
+from .models import Orders, Payment, ServicePerson, LocationHistory, Rider
 # OTP serializers
 
 
@@ -73,11 +73,7 @@ class RechargeTransactionSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
-        fields = [
-            'id', 'customer_phone', 'subcategory_name', 'booking_date',
-            'service_date', 'time', 'total_amount', 'status', 'full_address',
-            'created_at', 'updated_at'
-        ]
+        fields = "__all__"
         read_only_fields = ['created_at', 'updated_at']
 
 
@@ -141,4 +137,68 @@ class PaymentSerializer(serializers.ModelSerializer):
 class OrdersSerializer(serializers.ModelSerializer):
     class Meta:
         model = Orders
+        fields = '__all__'
+
+
+# Rapido and taxi location APIs
+
+
+class ServicePersonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServicePerson
+        fields = '__all__'
+        extra_kwargs = {
+            'current_latitude': {'required': False, 'allow_null': True},
+            'current_longitude': {'required': False, 'allow_null': True},
+        }
+
+
+class NearbyServicePersonSerializer(serializers.Serializer):
+    latitude = serializers.FloatField()
+    longitude = serializers.FloatField()
+    radius = serializers.FloatField()
+    vehicle_type = serializers.ChoiceField(
+        choices=[('bike', 'Bike'), ('auto', 'Auto'), ('car', 'Car')],
+        required=False
+    )
+
+
+class LocationHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LocationHistory
+        fields = '__all__'
+
+
+# Store in data to accepted orders 
+class RideSerializer(serializers.ModelSerializer):
+    pickup_map_url = serializers.SerializerMethodField()
+    drop_map_url = serializers.SerializerMethodField()
+    distance_km = serializers.SerializerMethodField()
+    formatted_fare = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Ride
+        fields = "__all__"
+
+    def get_pickup_map_url(self, obj):
+        if obj.pickup_latitude and obj.pickup_longitude:
+            return f"https://maps.google.com/?q={obj.pickup_latitude},{obj.pickup_longitude}"
+        return None
+
+    def get_drop_map_url(self, obj):
+        if obj.drop_latitude and obj.drop_longitude:
+            return f"https://maps.google.com/?q={obj.drop_latitude},{obj.drop_longitude}"
+        return None
+
+    def get_distance_km(self, obj):
+        return f"{obj.distance:.2f} km" if obj.distance else None
+
+    def get_formatted_fare(self, obj):
+        return f"₹{obj.fare:.2f}" if obj.fare else None
+
+
+class RiderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Rider
         fields = '__all__'
