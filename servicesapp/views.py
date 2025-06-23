@@ -1407,8 +1407,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
-from django.db.models import Sum
 from django.core.cache import cache
+from django.db.models import Sum
 from decimal import Decimal
 from datetime import timedelta
 
@@ -1416,9 +1416,18 @@ from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServiceP
 
 MINIMUM_RECHARGE = 50
 
-WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # vehicle_type in ServicePerson
+WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used internally
 
-# Normalize the phone number format
+# Mapping label → key
+WORK_TYPE_MAP = {
+    'Bike Taxi': 'bike_taxi',
+    'Auto Taxi': 'auto_taxi',
+    'Car Taxi': 'car_taxi',
+    'bike_taxi': 'bike_taxi',
+    'auto_taxi': 'auto_taxi',
+    'car_taxi': 'car_taxi',
+}
+
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
 
@@ -1462,13 +1471,23 @@ def rider_job_action(request):
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
-    try:
-        service_person = ServicePerson.objects.get(worker_profile=worker)
-    except ServicePerson.DoesNotExist:
+    # Normalize work_type (handle both label and value)
+    work_type_key = WORK_TYPE_MAP.get(worker.work_type)
+    if not work_type_key:
         return Response({
             "error": "You are not registered as a Ride service provider (Bike/Auto/Car)",
-            "hint": "Please register as a Service Person for ride services to access this feature"
+            "hint": "Please set your work type to Bike Taxi / Auto Taxi / Car Taxi."
         }, status=403)
+
+    vehicle_type = work_type_key.split('_')[0]  # bike, auto, car
+
+    service_person, created = ServicePerson.objects.get_or_create(
+        worker_profile=worker,
+        defaults={
+            "vehicle_type": vehicle_type,
+            "is_available": True
+        }
+    )
 
     if service_person.vehicle_type not in WORK_TYPE_KEYWORDS:
         return Response({
@@ -1476,6 +1495,7 @@ def rider_job_action(request):
             "vehicle_type": service_person.vehicle_type
         }, status=403)
 
+    # Balance and low balance notification
     balance = get_worker_balance(worker.phone_number)
     now = timezone.now()
     cache_key = f"low_balance_notify_{worker.phone_number}"
@@ -1498,7 +1518,7 @@ def rider_job_action(request):
             "balance": float(balance)
         }, status=403)
 
-    # FETCH Rides
+    # FETCH Ride Jobs
     if action == "fetch":
         assigned_ride_ids = Rider.objects.values_list('ride', flat=True)
         rides = Ride.objects.filter(
@@ -1519,7 +1539,6 @@ def rider_job_action(request):
 
         return Response({"data": data, "balance": float(balance)})
 
-    # ACCEPT Ride
     # ACCEPT Ride
     elif action == "accept":
         if not ride_id:
@@ -1543,10 +1562,9 @@ def rider_job_action(request):
         ride.updated_at = timezone.now()
         ride.save(update_fields=['status', 'updated_at'])
 
-        # ✅ This is the only change needed
         Rider.objects.create(
             ride=ride,
-            rider_phone=worker.phone_number,  # <== ADD THIS LINE
+            rider_phone=worker.phone_number,
             customer_phone=ride.customer_phone,
             pickup_address=ride.pickup_address,
             drop_address=ride.drop_address,
@@ -1599,9 +1617,17 @@ def rider_job_action(request):
         ride.updated_at = timezone.now()
         ride.save(update_fields=["status", "updated_at"])
 
+        Notification.objects.create(
+            category="Ride",
+            title="Ride Cancelled",
+            phone_number=worker.phone_number,
+            message=f"Ride #{ride.id} has been cancelled and reopened."
+        )
+
         return Response({"message": "Ride cancelled and reopened for others"})
 
     return Response({"error": "Invalid action"}, status=400)
+
 
 # To display accepted rides for a worker
 
