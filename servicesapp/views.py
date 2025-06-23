@@ -1117,7 +1117,7 @@ def worker_job_action(request):
         }, status=403)
 
     work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
-    keywords = [kw for kw in WORK_TYPE_KEYWORDS if kw in work_type_key]
+    keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
     if not keywords:
         return Response({"message": "No keywords mapped for this work type."}, status=204)
 
@@ -1256,7 +1256,7 @@ def get_accepted_orders(request):
         return Response({"error": "Phone number is required"}, status=400)
 
     def normalize_phone(phone):
-        return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
+        return phone.replace(" ", "").replace("-", "").replace("+91", "").strip()
 
     normalized_phone = normalize_phone(worker_phone)
     worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
@@ -1404,13 +1404,61 @@ def service_persons(request, pk=None):
 
 # Rider Job action API
 
-
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
 from django.core.cache import cache
 from django.db.models import Sum
+from decimal import Decimal
+from datetime import timedelta
+
+from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
+
+MINIMUM_RECHARGE = 50
+
+WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used for validation
+
+WORK_TYPE_MAP = {
+    'Bike Taxi': 'bike_taxi',
+    'Auto Taxi': 'auto_taxi',
+    'Car Taxi': 'car_taxi',
+    'bike_taxi': 'bike_taxi',
+    'auto_taxi': 'auto_taxi',
+    'car_taxi': 'car_taxi',
+}
+
+def normalize_phone(phone):
+    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
+
+def get_worker_balance(phone_number):
+    normalized = normalize_phone(phone_number)
+    credits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='credit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    debits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='debit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    return credits - debits
+
+def deduct_worker_balance(phone_number, amount):
+    Recharge.objects.create(
+        phone_number=phone_number,
+        amount=amount,
+        transaction_type='debit',
+        is_paid=True
+    )
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.utils import timezone
 from decimal import Decimal
 from datetime import timedelta
 
@@ -1429,10 +1477,8 @@ WORK_TYPE_MAP = {
     'car_taxi': 'car_taxi',
 }
 
-
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
-
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1450,7 +1496,6 @@ def get_worker_balance(phone_number):
 
     return credits - debits
 
-
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1458,7 +1503,6 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
-
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1476,6 +1520,7 @@ def rider_job_action(request):
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
+    # Normalize work_type (handle both label and value)
     work_type_key = WORK_TYPE_MAP.get(worker.work_type)
     if not work_type_key:
         return Response({
@@ -1483,7 +1528,7 @@ def rider_job_action(request):
             "hint": "Please set your work type to Bike Taxi / Auto Taxi / Car Taxi."
         }, status=403)
 
-    vehicle_type = work_type_key.split('_')[0]
+    vehicle_type = work_type_key.split('_')[0]  # bike, auto, car
 
     service_person, created = ServicePerson.objects.get_or_create(
         worker_profile=worker,
@@ -1499,20 +1544,10 @@ def rider_job_action(request):
             "vehicle_type": service_person.vehicle_type
         }, status=403)
 
+    # Balance and low balance notification
     balance = get_worker_balance(worker.phone_number)
     now = timezone.now()
-    cache_key = f"low_balance_notify_{worker.phone_number}"
-    last_notify = cache.get(cache_key)
-    notify_interval = timedelta(minutes=10)
-
-    if balance < MINIMUM_RECHARGE and (not last_notify or now - last_notify > notify_interval):
-        Notification.objects.create(
-            category="Recharge",
-            title="Low Connects",
-            phone_number=worker.phone_number,
-            message="Connects are over. Please recharge to continue accepting ride jobs."
-        )
-        cache.set(cache_key, now, timeout=3600)
+    # (You can add notification logic here if needed)
 
     if balance < MINIMUM_RECHARGE and action == "fetch":
         return Response({
@@ -1521,6 +1556,7 @@ def rider_job_action(request):
             "balance": float(balance)
         }, status=403)
 
+    # FETCH Ride Jobs
     if action == "fetch":
         assigned_ride_ids = Rider.objects.values_list('ride', flat=True)
         rides = Ride.objects.filter(
@@ -1541,6 +1577,7 @@ def rider_job_action(request):
 
         return Response({"data": data, "balance": float(balance)})
 
+    # ACCEPT Ride
     elif action == "accept":
         if not ride_id:
             return Response({"error": "ride_id is required for accept"}, status=400)
@@ -1583,12 +1620,7 @@ def rider_job_action(request):
             updated_at=timezone.now()
         )
 
-        Notification.objects.create(
-            category="Ride",
-            title="Ride Confirmed",
-            phone_number=worker.phone_number,
-            message=f"You accepted Ride #{ride.id} from {ride.pickup_address} to {ride.drop_address}."
-        )
+        # (Optional: send notification here)
 
         return Response({
             "message": "Ride accepted",
@@ -1596,6 +1628,7 @@ def rider_job_action(request):
             "balance": float(get_worker_balance(worker.phone_number))
         })
 
+    # CANCEL Ride
     elif action == "cancel":
         if not ride_id:
             return Response({"error": "ride_id is required for cancel"}, status=400)
@@ -1617,18 +1650,12 @@ def rider_job_action(request):
         ride.updated_at = timezone.now()
         ride.save(update_fields=["status", "updated_at"])
 
-        Notification.objects.create(
-            category="Ride",
-            title="Ride Cancelled",
-            phone_number=worker.phone_number,
-            message=f"Ride #{ride.id} has been cancelled and reopened."
-        )
+        # (Optional: send notification here)
 
         return Response({"message": "Ride cancelled and reopened for others"})
 
     return Response({"error": "Invalid action"}, status=400)
-
-
+                    
 # To display accepted rides for a worker
 
 
