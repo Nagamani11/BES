@@ -23,6 +23,7 @@ from django.contrib.auth import authenticate
 from django.db.models import Sum
 from .models import Notification
 import re
+from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from .serializers import OrderSerializer
 from .models import UserProfile
@@ -32,6 +33,12 @@ from decimal import Decimal
 from django.core.cache import cache
 import json
 from django.core.files.storage import default_storage
+from .serializers import (
+    ServicePersonSerializer,
+    NearbyServicePersonSerializer
+)
+from .models import ServicePerson, LocationHistory
+from geopy.distance import geodesic
 
 
 logger = logging.getLogger(__name__)
@@ -1239,10 +1246,12 @@ def worker_job_action(request):
     return Response({"error": "Invalid action"}, status=400)
 
 
-@api_view(['GET'])
+
+@api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def get_accepted_orders(request):
-    worker_phone = request.query_params.get('phone')
+    # Handle phone parameter from both GET and POST
+    worker_phone = request.data.get('phone') or request.query_params.get('phone')
     if not worker_phone:
         return Response({"error": "Phone number is required"}, status=400)
 
@@ -1254,10 +1263,31 @@ def get_accepted_orders(request):
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
+    # Handle feedback submission (POST)
+    if request.method == 'POST' and 'rating' in request.data:
+        print("Feedback submission detected")
+        order_id = request.data.get('order_id')
+        if order_id:
+            try:
+                order = Orders.objects.get(id=order_id)
+                order.rating = request.data.get('rating')
+                order.feedback_text = request.data.get('feedback', '')
+                order.feedback_submitted = True
+                order.contact_disabled = True  # Explicitly disable contact
+                order.save()
+                return Response({
+                    "status": "feedback_submitted",
+                    "order_id": order.id,
+                    "contact_disabled": True
+                })
+            except Orders.DoesNotExist:
+                pass  # Continue to return orders
+
+    # Determine keywords for this worker's work_type
     work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
     keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
 
-    # Get accepted orders for this worker
+    # Get accepted orders
     orders = Orders.objects.filter(
         Q(status='Confirmed') | Q(status='Completed'),
         worker_phone__endswith=normalized_phone,
@@ -1266,27 +1296,352 @@ def get_accepted_orders(request):
 
     results = []
     for order in orders:
-        # Find the matching Payment for this order
         payment = Payment.objects.filter(
             booking_date=order.booking_date,
             booking_time=order.booking_time,
             customer_phone=order.customer_phone,
             subcategory_name=order.subcategory_name
         ).first()
-        if not payment:
-            continue  # skip if payment not found
-
-        results.append({
-            "order_id": order.id,
-            "booking_id": payment.id,
-            "subcategory_name": payment.subcategory_name,
-            "customer_phone": payment.customer_phone,
-            "status": order.status,
-            "service_date": payment.service_date.strftime("%Y-%m-%d") if payment.service_date else "",
-            "time": getattr(order, "time", ""),  # If you have a time field
-            "total_amount": str(payment.amount),
-            "full_address": payment.full_address,
-            "created_at": payment.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        })
+        
+        if payment:
+            results.append({
+                "order_id": order.id,
+                "booking_id": payment.id,
+                "subcategory_name": order.subcategory_name,
+                "customer_phone": order.customer_phone,
+                "status": order.status,
+                "service_date": order.service_date.strftime("%Y-%m-%d"),
+                "time": order.time.strftime("%H:%M"),
+                "total_amount": str(order.total_amount),
+                "full_address": order.full_address,
+                "created_at": order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "rating": float(order.rating) if order.rating else None,
+                "feedback_submitted": order.feedback_submitted,
+                "contact_disabled": order.contact_disabled,  # Explicit field
+                "contact_allowed": not order.contact_disabled  # Derived field
+            })
 
     return Response({"data": results})
+
+
+
+# Rapido and taxi location APIs
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def service_persons(request, pk=None):
+    if pk:
+        try:
+            service_person = ServicePerson.objects.get(pk=pk)
+
+            if request.method == 'POST':
+                latitude = request.data.get('latitude')
+                longitude = request.data.get('longitude')
+
+                if latitude is None or longitude is None:
+                    return Response(
+                        {'error': 'Latitude and longitude required'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                service_person.current_latitude = float(latitude)
+                service_person.current_longitude = float(longitude)
+                service_person.save()
+
+                # Save location history
+                LocationHistory.objects.create(
+                    service_person=service_person,
+                    latitude=service_person.current_latitude,
+                    longitude=service_person.current_longitude
+                )
+
+                return Response({'status': 'Location updated'})
+
+            # GET: single service person
+            serializer = ServicePersonSerializer(service_person)
+            return Response(serializer.data)
+
+        except ServicePerson.DoesNotExist:
+            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+    elif request.method == 'GET':
+        serializer = NearbyServicePersonSerializer(data=request.query_params)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        user_coords = (data['latitude'], data['longitude'])
+        radius = data['radius']
+
+        queryset = ServicePerson.objects.filter(is_available=True)
+
+        if data.get('vehicle_type'):
+            queryset = queryset.filter(vehicle_type=data['vehicle_type'])
+
+        # Filter nearby based on geodesic distance
+        filtered = []
+        for person in queryset:
+            if person.current_latitude is not None and person.current_longitude is not None:
+                person_coords = (person.current_latitude, person.current_longitude)
+                distance_km = geodesic(user_coords, person_coords).km
+                if distance_km <= radius:
+                    person.distance = round(distance_km, 2)
+                    filtered.append(person)
+
+        # Paginate filtered results
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(filtered, request)
+
+        if page is not None:
+            serializer = ServicePersonSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        # Fallback if pagination not used
+        serializer = ServicePersonSerializer(filtered, many=True)
+        return Response(serializer.data)
+
+
+
+# Rider Job action API
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.utils import timezone
+from django.db.models import Sum
+from django.core.cache import cache
+from decimal import Decimal
+from datetime import timedelta
+
+from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
+
+MINIMUM_RECHARGE = 50
+
+WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # vehicle_type in ServicePerson
+
+# Normalize the phone number format
+def normalize_phone(phone):
+    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
+
+def get_worker_balance(phone_number):
+    normalized = normalize_phone(phone_number)
+    credits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='credit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    debits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='debit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    return credits - debits
+
+def deduct_worker_balance(phone_number, amount):
+    Recharge.objects.create(
+        phone_number=phone_number,
+        amount=amount,
+        transaction_type='debit',
+        is_paid=True
+    )
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def rider_job_action(request):
+    phone = request.data.get("phone")
+    action = request.data.get("action")
+    ride_id = request.data.get("ride_id")
+
+    if not phone:
+        return Response({"error": "Phone number is required"}, status=400)
+
+    normalized_phone = normalize_phone(phone)
+    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+
+    if not worker:
+        return Response({"error": "Worker not found"}, status=404)
+
+    try:
+        service_person = ServicePerson.objects.get(worker_profile=worker)
+    except ServicePerson.DoesNotExist:
+        return Response({
+            "error": "You are not registered as a Ride service provider (Bike/Auto/Car)",
+            "hint": "Please register as a Service Person for ride services to access this feature"
+        }, status=403)
+
+    if service_person.vehicle_type not in WORK_TYPE_KEYWORDS:
+        return Response({
+            "error": "Invalid vehicle type for ride job access",
+            "vehicle_type": service_person.vehicle_type
+        }, status=403)
+
+    balance = get_worker_balance(worker.phone_number)
+    now = timezone.now()
+    cache_key = f"low_balance_notify_{worker.phone_number}"
+    last_notify = cache.get(cache_key)
+    notify_interval = timedelta(minutes=10)
+
+    if balance < MINIMUM_RECHARGE and (not last_notify or now - last_notify > notify_interval):
+        Notification.objects.create(
+            category="Recharge",
+            title="Low Connects",
+            phone_number=worker.phone_number,
+            message="Connects are over. Please recharge to continue accepting ride jobs."
+        )
+        cache.set(cache_key, now, timeout=3600)
+
+    if balance < MINIMUM_RECHARGE and action == "fetch":
+        return Response({
+            "error": "Low balance",
+            "message": "Connects are over. Please recharge to continue accepting rides.",
+            "balance": float(balance)
+        }, status=403)
+
+    # FETCH Rides
+    if action == "fetch":
+        assigned_ride_ids = Rider.objects.values_list('ride', flat=True)
+        rides = Ride.objects.filter(
+            vehicle_type=service_person.vehicle_type,
+            status='requested'
+        ).exclude(id__in=assigned_ride_ids).order_by('-created_at')
+
+        data = [{
+            "ride_id": ride.id,
+            "customer_phone": ride.customer_phone,
+            "pickup_address": ride.pickup_address,
+            "drop_address": ride.drop_address,
+            "fare": str(ride.fare or 0),
+            "distance": ride.distance,
+            "created_at": ride.created_at,
+            "vehicle_type": ride.vehicle_type
+        } for ride in rides]
+
+        return Response({"data": data, "balance": float(balance)})
+
+    # ACCEPT Ride
+    # ACCEPT Ride
+    elif action == "accept":
+        if not ride_id:
+            return Response({"error": "ride_id is required for accept"}, status=400)
+
+        try:
+            ride = Ride.objects.get(id=ride_id, status="requested")
+        except Ride.DoesNotExist:
+            return Response({"error": "Ride not available or already accepted"}, status=404)
+
+        if Rider.objects.filter(ride=ride).exists():
+            return Response({"error": "Ride already accepted"}, status=400)
+
+        deduction = Decimal('5.00')
+        if balance < deduction:
+            return Response({"error": "Insufficient balance to accept ride"}, status=403)
+
+        deduct_worker_balance(worker.phone_number, deduction)
+
+        ride.status = 'accepted'
+        ride.updated_at = timezone.now()
+        ride.save(update_fields=['status', 'updated_at'])
+
+        # ✅ This is the only change needed
+        Rider.objects.create(
+            ride=ride,
+            rider_phone=worker.phone_number,  # <== ADD THIS LINE
+            customer_phone=ride.customer_phone,
+            pickup_address=ride.pickup_address,
+            drop_address=ride.drop_address,
+            pickup_latitude=ride.pickup_latitude,
+            pickup_longitude=ride.pickup_longitude,
+            drop_latitude=ride.drop_latitude,
+            drop_longitude=ride.drop_longitude,
+            fare=ride.fare,
+            distance=ride.distance,
+            vehicle_type=ride.vehicle_type,
+            otp_code=ride.otp_code,
+            status='Confirmed',
+            is_paid=ride.is_paid,
+            created_at=ride.created_at,
+            updated_at=timezone.now()
+        )
+
+        Notification.objects.create(
+            category="Ride",
+            title="Ride Confirmed",
+            phone_number=worker.phone_number,
+            message=f"You accepted Ride #{ride.id} from {ride.pickup_address} to {ride.drop_address}."
+        )
+
+        return Response({
+            "message": "Ride accepted",
+            "ride_id": ride.id,
+            "balance": float(get_worker_balance(worker.phone_number))
+        })
+
+    # CANCEL Ride
+    elif action == "cancel":
+        if not ride_id:
+            return Response({"error": "ride_id is required for cancel"}, status=400)
+
+        try:
+            ride = Ride.objects.get(id=ride_id)
+        except Ride.DoesNotExist:
+            return Response({"error": "Ride not found"}, status=404)
+
+        rider = Rider.objects.filter(ride=ride).first()
+        if not rider:
+            return Response({"error": "Ride not yet confirmed"}, status=404)
+
+        rider.status = "Cancelled"
+        rider.updated_at = timezone.now()
+        rider.save(update_fields=["status", "updated_at"])
+
+        ride.status = "requested"
+        ride.updated_at = timezone.now()
+        ride.save(update_fields=["status", "updated_at"])
+
+        return Response({"message": "Ride cancelled and reopened for others"})
+
+    return Response({"error": "Invalid action"}, status=400)
+
+# To display accepted rides for a worker
+
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.db.models import Q
+from datetime import datetime
+from .models import Rider, WorkerProfile  # import your models
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_accepted_rides(request):
+    phone = request.query_params.get("phone")
+    if not phone:
+        return Response({"error": "Phone number is required"}, status=400)
+
+    def normalize_phone(phone):
+        return phone.replace(" ", "").replace("-", "").replace("+91", "").strip()
+
+    normalized = normalize_phone(phone)
+
+    riders = Rider.objects.filter(
+        rider_phone__endswith=normalized,
+        status__in=["Confirmed", "Completed"]
+    ).order_by("-created_at")
+
+    data = []
+    for r in riders:
+        data.append({
+            "ride_id": r.ride.id,
+            "status": r.status,
+            "pickup_address": r.pickup_address,
+            "drop_address": r.drop_address,
+            "fare": str(r.fare or 0),
+            "distance": r.distance,
+            "vehicle_type": r.vehicle_type,
+            "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            "is_paid": r.is_paid
+        })
+
+    return Response({"data": data})
