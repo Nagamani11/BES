@@ -394,7 +394,6 @@ class ServicePerson(models.Model):
         ('car', 'Car'),
     ]
 
-    # Changed from User to WorkerProfile for better data structure
     worker_profile = models.OneToOneField(
         'WorkerProfile',  # Assuming WorkerProfile is defined in same models.py
         on_delete=models.CASCADE,
@@ -404,11 +403,6 @@ class ServicePerson(models.Model):
         max_length=50,
         choices=VEHICLE_TYPES,
         help_text="Type of vehicle used for service"
-    )
-    vehicle_number = models.CharField(
-        max_length=20,
-        unique=True,
-        help_text="Registration number of the vehicle"
     )
     is_available = models.BooleanField(
         default=True,
@@ -440,7 +434,7 @@ class ServicePerson(models.Model):
         ordering = ['-rating']
 
     def __str__(self):
-        return f"{self.worker_profile.full_name} - {self.get_vehicle_type_display()} (Vehicle: {self.vehicle_number})"
+        return f"{self.worker_profile.full_name} - {self.get_vehicle_type_display()}"
 
     @property
     def current_location(self):
