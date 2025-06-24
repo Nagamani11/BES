@@ -64,6 +64,8 @@ urlpatterns = [
          name='service_persons'),
     path('rider_job_action/', views.rider_job_action,
          name='rider_job_action'),
+    path('validate_ride_otp/', views.validate_ride_otp,
+         name='validate_ride_otp'),
     path('get_accepted_rides/', views.get_accepted_rides,
          name='get_accepted_rides'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
