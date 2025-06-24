@@ -38,7 +38,8 @@ from .serializers import (
     NearbyServicePersonSerializer
 )
 from .models import ServicePerson, LocationHistory
-from .models import Rider
+from geopy.distance import geodesic
+
 
 logger = logging.getLogger(__name__)
 
@@ -941,7 +942,15 @@ def notifications(request):
     return Response({"notifications": data})
 
 # In single API
-
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.db.models import Q, Sum
+from django.utils import timezone
+from datetime import timedelta
+from django.core.cache import cache
+from decimal import Decimal
+from .models import WorkerProfile, Orders, Payment, Notification, Recharge
 
 WORK_TYPE_KEYWORDS = {
     'Daily Helpers': [
@@ -1037,10 +1046,8 @@ WORK_TYPE_KEY_MAP = {
 
 MINIMUM_RECHARGE = 50
 
-
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
-
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1056,7 +1063,6 @@ def get_worker_balance(phone_number):
     ).aggregate(total=Sum('amount'))['total'] or 0
     return credits - debits
 
-
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1064,7 +1070,6 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
-
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1077,8 +1082,7 @@ def worker_job_action(request):
         return Response({"error": "Phone number is required"}, status=400)
 
     normalized_phone = normalize_phone(phone)
-    worker = WorkerProfile.objects.filter(
-        phone_number__endswith=normalized_phone).first()
+    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
@@ -1115,14 +1119,13 @@ def worker_job_action(request):
     work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
     keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
     if not keywords:
-        return Response({"message": "No keywords mapped for this work type."},
-                        status=204)
+        return Response({"message": "No keywords mapped for this work type."}, status=204)
 
     # FETCH ACTION
     if action == "fetch":
         # Get all accepted orders as a set of tuples for fast lookup
-        accepted_orders = set(Orders.objects.values_list(
-            'booking_date', 'booking_time', 'customer_phone'))
+        accepted_orders = set(Orders.objects.values_list('booking_date', 'booking_time', 'customer_phone'))
+        # Only show jobs from Payment table that are not already accepted (not in Orders)
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
             status__in=["Pending", "Scheduled"]
@@ -1150,15 +1153,12 @@ def worker_job_action(request):
     # ACCEPT ACTION
     elif action == "accept":
         if not booking_id:
-            return Response({"error": "booking_id is required for accept"},
-                            status=400)
+            return Response({"error": "booking_id is required for accept"}, status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id, status="Pending")
         except Payment.DoesNotExist:
-            return Response(
-                {"error": "This order is already accepted or not available"},
-                status=400)
+            return Response({"error": "This order is already accepted or not available"}, status=400)
 
         if Orders.objects.filter(
             booking_date=payment.booking_date,
@@ -1246,6 +1246,7 @@ def worker_job_action(request):
     return Response({"error": "Invalid action"}, status=400)
 
 
+
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def get_accepted_orders(request):
@@ -1321,6 +1322,7 @@ def get_accepted_orders(request):
             })
 
     return Response({"data": results})
+
 
 
 # Rapido and taxi location APIs
@@ -1655,6 +1657,8 @@ def rider_job_action(request):
     return Response({"error": "Invalid action"}, status=400)
 
 # Validate OtP for Ride Acceptance
+
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def validate_ride_otp(request):
@@ -1676,10 +1680,15 @@ def validate_ride_otp(request):
 
 
 
-
 # To display accepted rides for a worker
 
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.db.models import Q
+from datetime import datetime
+from .models import Rider, WorkerProfile  # import your models
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
