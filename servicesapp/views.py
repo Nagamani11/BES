@@ -3,6 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from .serializers import WorkerProfileSerializer
+from datetime import timedelta
 from django.utils import timezone
 from rest_framework.permissions import AllowAny
 import random
@@ -17,6 +18,7 @@ from django.contrib.auth.models import User
 from .models import PasswordResetOTP
 from .serializers import GenerateOTPSerializer, OrdersSerializer
 from django.core.mail import send_mail
+from .models import Recharge
 from django.contrib.auth import authenticate
 from django.db.models import Sum
 from .models import Notification
@@ -32,12 +34,10 @@ from django.core.cache import cache
 import json
 from django.core.files.storage import default_storage
 from .serializers import (
+    ServicePersonSerializer,
     NearbyServicePersonSerializer
 )
 from .models import ServicePerson, LocationHistory
-from datetime import timedelta
-from .models import Ride, Rider, Recharge
-import requests
 from geopy.distance import geodesic
 
 
@@ -208,7 +208,7 @@ def worker_form(request):
 
 # GET  and POSTAPI for FORM
 
-
+from .models import WorkerProfile, worker_document_path, worker_certification_path, worker_photo_path
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def register_worker(request):
@@ -247,7 +247,7 @@ def register_worker(request):
 
             # 👇 Updated to allow multiple selections
             "document_types": {
-                "type": "multiselect",   # allow selecting multiple values
+                "type": "multiselect",   # Indicates frontend should allow selecting multiple values
                 "required": True,
                 "label": "Document Types",
                 "choices": format_choices(WorkerProfile.DOCUMENT_TYPE_CHOICES),
@@ -925,7 +925,15 @@ def notifications(request):
     return Response({"notifications": data})
 
 # In single API
-
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.db.models import Q, Sum
+from django.utils import timezone
+from datetime import timedelta
+from django.core.cache import cache
+from decimal import Decimal
+from .models import WorkerProfile, Orders, Payment, Notification, Recharge
 
 WORK_TYPE_KEYWORDS = {
     'Daily Helpers': [
@@ -1021,10 +1029,8 @@ WORK_TYPE_KEY_MAP = {
 
 MINIMUM_RECHARGE = 50
 
-
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
-
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1040,7 +1046,6 @@ def get_worker_balance(phone_number):
     ).aggregate(total=Sum('amount'))['total'] or 0
     return credits - debits
 
-
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1048,7 +1053,6 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
-
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1225,6 +1229,7 @@ def worker_job_action(request):
     return Response({"error": "Invalid action"}, status=400)
 
 
+
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def get_accepted_orders(request):
@@ -1302,28 +1307,21 @@ def get_accepted_orders(request):
     return Response({"data": results})
 
 
+
 # Rapido and taxi location APIs
 
-MAPBOX_SECRET_KEY = "sk.eyJ1IjoicHJ1ZHZpLW5heWFrIiwiYSI6ImNtY2Jvb2J4ODAwZjgyc3M5djh5Z3BseTUifQ.szWQ1xMj2D7BrRJuhGfUCQ"  # Replace with your real one
+from geopy.geocoders import Nominatim
+from geopy.distance import geodesic
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
+from rest_framework import status
 
+from .models import ServicePerson, LocationHistory
+from .serializers import NearbyServicePersonSerializer
 
-def reverse_geocode_mapbox(lat, lon):
-    try:
-        url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{lon},{lat}.json"
-        params = {
-            'access_token': MAPBOX_SECRET_KEY,
-            'language': 'en'
-        }
-        response = requests.get(url, params=params)
-        data = response.json()
-
-        if response.status_code == 200 and data.get('features'):
-            return data['features'][0]['place_name']
-        return "Unknown location"
-    except Exception as e:
-        print("Mapbox Reverse Geocode Error:", str(e))
-        return "Reverse geocoding failed"
-
+geolocator = Nominatim(user_agent="prudvi.nayak@hifix.in")
 
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
@@ -1379,7 +1377,12 @@ def service_persons(request):
                 distance_km = geodesic(user_coords, person_coords).km
 
                 if distance_km <= radius:
-                    address = reverse_geocode_mapbox(person_coords[0], person_coords[1])
+                    try:
+                        location = geolocator.reverse(person_coords, language='en')
+                        address = location.address if location else "Unknown location"
+                    except Exception:
+                        address = "Reverse geocoding failed"
+
                     name = getattr(person.worker_profile, "full_name", "Unknown")
 
                     nearby_list.append({
@@ -1403,12 +1406,23 @@ def service_persons(request):
     return Response(nearby_list)
 
 
+
 # Rider Job action API
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.utils import timezone
+from django.core.cache import cache
+from django.db.models import Sum
+from decimal import Decimal
+from datetime import timedelta
+
+from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
 
 MINIMUM_RECHARGE = 50
 
-WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']
+WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used for validation
 
 WORK_TYPE_MAP = {
     'Bike Taxi': 'bike_taxi',
@@ -1421,7 +1435,6 @@ WORK_TYPE_MAP = {
 
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
-
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1439,7 +1452,6 @@ def get_worker_balance(phone_number):
 
     return credits - debits
 
-
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1448,6 +1460,54 @@ def deduct_worker_balance(phone_number, amount):
         is_paid=True
     )
 
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.utils import timezone
+from decimal import Decimal
+from datetime import timedelta
+
+from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
+
+MINIMUM_RECHARGE = 50
+
+WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']
+
+WORK_TYPE_MAP = {
+    'Bike Taxi': 'bike_taxi',
+    'Auto Taxi': 'auto_taxi',
+    'Car Taxi': 'car_taxi',
+    'bike_taxi': 'bike_taxi',
+    'auto_taxi': 'auto_taxi',
+    'car_taxi': 'car_taxi',
+}
+
+def normalize_phone(phone):
+    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
+
+def get_worker_balance(phone_number):
+    normalized = normalize_phone(phone_number)
+    credits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='credit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    debits = Recharge.objects.filter(
+        phone_number__endswith=normalized,
+        transaction_type='debit',
+        is_paid=True
+    ).aggregate(total=Sum('amount'))['total'] or 0
+
+    return credits - debits
+
+def deduct_worker_balance(phone_number, amount):
+    Recharge.objects.create(
+        phone_number=phone_number,
+        amount=amount,
+        transaction_type='debit',
+        is_paid=True
+    )
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1601,8 +1661,7 @@ def rider_job_action(request):
 
     return Response({"error": "Invalid action"}, status=400)
 
-
-# To show in Admin all rides
+# To show in admin panel all rides
 
 
 @api_view(['GET'])
@@ -1629,8 +1688,7 @@ def rider_orders(request):
         })
 
     return Response({"data": data}, status=status.HTTP_200_OK)
-
-# Validate OtP for Ride Acceptance
+# Validate OTP for Ride Acceptance
 
 
 @api_view(['POST'])
@@ -1653,7 +1711,16 @@ def validate_ride_otp(request):
         return Response({"error": "Invalid OTP"}, status=403)
 
 
+
 # To display accepted rides for a worker
+
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.db.models import Q
+from datetime import datetime
+from .models import Rider, WorkerProfile  # import your models
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
