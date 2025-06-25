@@ -64,6 +64,8 @@ urlpatterns = [
          name='service_persons'),
     path('rider_job_action/', views.rider_job_action,
          name='rider_job_action'),
+    path('rider_orders/', views.rider_orders,
+         name='rider_orders'),
     path('validate_ride_otp/', views.validate_ride_otp,
          name='validate_ride_otp'),
     path('get_accepted_rides/', views.get_accepted_rides,
