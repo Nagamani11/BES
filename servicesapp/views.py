@@ -3,7 +3,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from .serializers import WorkerProfileSerializer
-from datetime import timedelta
 from django.utils import timezone
 from rest_framework.permissions import AllowAny
 import random
@@ -18,7 +17,6 @@ from django.contrib.auth.models import User
 from .models import PasswordResetOTP
 from .serializers import GenerateOTPSerializer, OrdersSerializer
 from django.core.mail import send_mail
-from .models import Recharge
 from django.contrib.auth import authenticate
 from django.db.models import Sum
 from .models import Notification
@@ -34,10 +32,12 @@ from django.core.cache import cache
 import json
 from django.core.files.storage import default_storage
 from .serializers import (
-    ServicePersonSerializer,
     NearbyServicePersonSerializer
 )
 from .models import ServicePerson, LocationHistory
+from datetime import timedelta
+from .models import Ride, Rider, Recharge
+import requests
 from geopy.distance import geodesic
 
 
@@ -216,7 +216,6 @@ def register_worker(request):
         return [{"value": c[0], "label": c[1]} for c in choices]
 
     if request.method == "GET":
-        # Form structure response
         form_fields = {
             "full_name": {"type": "text", "required": True, "label": "Full Name"},
             "phone_number": {"type": "text", "required": True, "label": "Phone Number"},
@@ -245,23 +244,34 @@ def register_worker(request):
                 "choices": format_choices(WorkerProfile.COUNTRY_CHOICES),
             },
             "specialization": {"type": "text", "required": False, "label": "Specialization"},
-            "document_type": {
-                "type": "select",
+
+            # 👇 Updated to allow multiple selections
+            "document_types": {
+                "type": "multiselect",   # allow selecting multiple values
                 "required": True,
-                "label": "Document Type",
+                "label": "Document Types",
                 "choices": format_choices(WorkerProfile.DOCUMENT_TYPE_CHOICES),
             },
-            "document_file": {"type": "file", "required": True, "label": "Document File"},
-            "certification_file": {
-                "type": "file",
-                "required": False,
-                "label": "Certification File"
+            "document_files": {
+                "type": "file[]",   # Indicates multiple files
+                "required": True,
+                "label": "Document Files"
             },
-            "photo": {"type": "file", "required": True, "label": "Profile Photo"},
+            "certification_files": {
+                "type": "file[]",   # Indicates multiple files
+                "required": False,
+                "label": "Certification Files"
+            },
+            "photo": {
+                "type": "file",
+                "required": True,
+                "label": "Profile Photo"
+            },
         }
 
+        # Conditional requirements for Tutors & Nursing
         conditional_required_fields = {
-            "certification_file": ["tutors", "nursing"]
+            "certification_files": ["Tutors", "Nursing"]
         }
 
         return Response({
@@ -269,33 +279,6 @@ def register_worker(request):
             "conditional_required": conditional_required_fields
         })
 
-    elif request.method == "POST":
-        data = request.data
-        work_type = data.get("work_type")
-
-        if work_type in ["tutors", "nursing"] and not request.FILES.get("certification_file"):
-            return Response({"error": "Certification file is required for tutors and nursing."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            WorkerProfile.objects.create(
-                full_name=data.get("full_name"),
-                phone_number=data.get("phone_number"),
-                email=data.get("email"),
-                work_type=work_type,
-                education=data.get("education"),
-                years_of_experience=data.get("years_of_experience") or None,
-                experience_country=data.get("experience_country"),
-                specialization=data.get("specialization"),
-                document_type=data.get("document_type"),
-                document_file=request.FILES.get("document_file"),
-                photo=request.FILES.get("photo"),
-                certification_file=request.FILES.get("certification_file")
-            )
-            return Response({"message": "Registration successful"}, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 # To display all the form registration employees that be display in Admin
 
@@ -942,15 +925,7 @@ def notifications(request):
     return Response({"notifications": data})
 
 # In single API
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.db.models import Q, Sum
-from django.utils import timezone
-from datetime import timedelta
-from django.core.cache import cache
-from decimal import Decimal
-from .models import WorkerProfile, Orders, Payment, Notification, Recharge
+
 
 WORK_TYPE_KEYWORDS = {
     'Daily Helpers': [
@@ -1046,8 +1021,10 @@ WORK_TYPE_KEY_MAP = {
 
 MINIMUM_RECHARGE = 50
 
+
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
+
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1063,6 +1040,7 @@ def get_worker_balance(phone_number):
     ).aggregate(total=Sum('amount'))['total'] or 0
     return credits - debits
 
+
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1070,6 +1048,7 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1246,7 +1225,6 @@ def worker_job_action(request):
     return Response({"error": "Invalid action"}, status=400)
 
 
-
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def get_accepted_orders(request):
@@ -1324,145 +1302,109 @@ def get_accepted_orders(request):
     return Response({"data": results})
 
 
-
 # Rapido and taxi location APIs
+
+MAPBOX_SECRET_KEY = "sk.eyJ1IjoicHJ1ZHZpLW5heWFrIiwiYSI6ImNtY2Jvb2J4ODAwZjgyc3M5djh5Z3BseTUifQ.szWQ1xMj2D7BrRJuhGfUCQ"  # Replace with your real one
+
+
+def reverse_geocode_mapbox(lat, lon):
+    try:
+        url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{lon},{lat}.json"
+        params = {
+            'access_token': MAPBOX_SECRET_KEY,
+            'language': 'en'
+        }
+        response = requests.get(url, params=params)
+        data = response.json()
+
+        if response.status_code == 200 and data.get('features'):
+            return data['features'][0]['place_name']
+        return "Unknown location"
+    except Exception as e:
+        print("Mapbox Reverse Geocode Error:", str(e))
+        return "Reverse geocoding failed"
 
 
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
-def service_persons(request, pk=None):
-    if pk:
+def service_persons(request):
+    # --- POST: Update location ---
+    if request.method == 'POST':
+        service_person_id = request.data.get('id')
+        latitude = request.data.get('latitude')
+        longitude = request.data.get('longitude')
+
+        if not all([service_person_id, latitude, longitude]):
+            return Response({'error': 'Missing id, latitude, or longitude'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            service_person = ServicePerson.objects.get(pk=pk)
+            service_person = ServicePerson.objects.get(id=service_person_id)
+            service_person.current_latitude = float(latitude)
+            service_person.current_longitude = float(longitude)
+            service_person.save()
 
-            if request.method == 'POST':
-                latitude = request.data.get('latitude')
-                longitude = request.data.get('longitude')
+            # Optional: Save to location history
+            LocationHistory.objects.create(
+                service_person=service_person,
+                latitude=latitude,
+                longitude=longitude
+            )
 
-                if latitude is None or longitude is None:
-                    return Response(
-                        {'error': 'Latitude and longitude required'},
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-
-                service_person.current_latitude = float(latitude)
-                service_person.current_longitude = float(longitude)
-                service_person.save()
-
-                # Save location history
-                LocationHistory.objects.create(
-                    service_person=service_person,
-                    latitude=service_person.current_latitude,
-                    longitude=service_person.current_longitude
-                )
-
-                return Response({'status': 'Location updated'})
-
-            # GET: single service person
-            serializer = ServicePersonSerializer(service_person)
-            return Response(serializer.data)
-
+            return Response({'status': 'Location updated successfully'})
         except ServicePerson.DoesNotExist:
-            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
-    elif request.method == 'GET':
-        serializer = NearbyServicePersonSerializer(data=request.query_params)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Service person not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        data = serializer.validated_data
-        user_coords = (data['latitude'], data['longitude'])
-        radius = data['radius']
+    # --- GET: Nearby service persons ---
+    serializer = NearbyServicePersonSerializer(data=request.query_params)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        queryset = ServicePerson.objects.filter(is_available=True)
+    data = serializer.validated_data
+    user_coords = (data['latitude'], data['longitude'])
+    radius = data['radius']
 
-        if data.get('vehicle_type'):
-            queryset = queryset.filter(vehicle_type=data['vehicle_type'])
+    queryset = ServicePerson.objects.filter(is_available=True)
+    if data.get('vehicle_type'):
+        queryset = queryset.filter(vehicle_type=data['vehicle_type'])
 
-        # Filter nearby based on geodesic distance
-        filtered = []
-        for person in queryset:
-            if person.current_latitude is not None and person.current_longitude is not None:
+    nearby_list = []
+
+    for person in queryset:
+        if person.current_latitude is not None and person.current_longitude is not None:
+            try:
                 person_coords = (person.current_latitude, person.current_longitude)
                 distance_km = geodesic(user_coords, person_coords).km
+
                 if distance_km <= radius:
-                    person.distance = round(distance_km, 2)
-                    filtered.append(person)
+                    address = reverse_geocode_mapbox(person_coords[0], person_coords[1])
+                    name = getattr(person.worker_profile, "full_name", "Unknown")
 
-        # Paginate filtered results
-        paginator = PageNumberPagination()
-        page = paginator.paginate_queryset(filtered, request)
+                    nearby_list.append({
+                        "id": person.id,
+                        "name": name,
+                        "vehicle_type": person.vehicle_type,
+                        "distance_km": round(distance_km, 2),
+                        "location": address,
+                        "rating": person.rating
+                    })
+            except Exception as e:
+                print(f"Error processing person {person.id}: {e}")
+                continue
 
-        if page is not None:
-            serializer = ServicePersonSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
+    paginator = PageNumberPagination()
+    paginated = paginator.paginate_queryset(nearby_list, request)
 
-        # Fallback if pagination not used
-        serializer = ServicePersonSerializer(filtered, many=True)
-        return Response(serializer.data)
+    if paginated is not None:
+        return paginator.get_paginated_response(paginated)
 
+    return Response(nearby_list)
 
 
 # Rider Job action API
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.utils import timezone
-from django.core.cache import cache
-from django.db.models import Sum
-from decimal import Decimal
-from datetime import timedelta
-
-from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
-
-MINIMUM_RECHARGE = 50
-
-WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used for validation
-
-WORK_TYPE_MAP = {
-    'Bike Taxi': 'bike_taxi',
-    'Auto Taxi': 'auto_taxi',
-    'Car Taxi': 'car_taxi',
-    'bike_taxi': 'bike_taxi',
-    'auto_taxi': 'auto_taxi',
-    'car_taxi': 'car_taxi',
-}
-
-def normalize_phone(phone):
-    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
-
-def get_worker_balance(phone_number):
-    normalized = normalize_phone(phone_number)
-    credits = Recharge.objects.filter(
-        phone_number__endswith=normalized,
-        transaction_type='credit',
-        is_paid=True
-    ).aggregate(total=Sum('amount'))['total'] or 0
-
-    debits = Recharge.objects.filter(
-        phone_number__endswith=normalized,
-        transaction_type='debit',
-        is_paid=True
-    ).aggregate(total=Sum('amount'))['total'] or 0
-
-    return credits - debits
-
-def deduct_worker_balance(phone_number, amount):
-    Recharge.objects.create(
-        phone_number=phone_number,
-        amount=amount,
-        transaction_type='debit',
-        is_paid=True
-    )
-
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.utils import timezone
-from decimal import Decimal
-from datetime import timedelta
-
-from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
 
 MINIMUM_RECHARGE = 50
 
@@ -1480,6 +1422,7 @@ WORK_TYPE_MAP = {
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
 
+
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
     credits = Recharge.objects.filter(
@@ -1496,6 +1439,7 @@ def get_worker_balance(phone_number):
 
     return credits - debits
 
+
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1503,6 +1447,7 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1656,6 +1601,35 @@ def rider_job_action(request):
 
     return Response({"error": "Invalid action"}, status=400)
 
+
+# To show in Admin all rides
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def rider_orders(request):
+    """
+    Get all rider accepted ride orders
+    """
+    riders = Rider.objects.select_related('ride').all().order_by('-created_at')
+    data = []
+    for rider in riders:
+        data.append({
+            "id": rider.id,
+            "ride_id": rider.ride.id if rider.ride else None,
+            "rider_phone": rider.rider_phone,
+            "customer_phone": rider.customer_phone,
+            "pickup_address": rider.pickup_address,
+            "drop_address": rider.drop_address,
+            "fare": rider.fare,
+            "distance": rider.distance,
+            "status": rider.status,
+            "created_at": rider.created_at,
+            "updated_at": rider.updated_at,
+        })
+
+    return Response({"data": data}, status=status.HTTP_200_OK)
+
 # Validate OtP for Ride Acceptance
 
 
@@ -1679,16 +1653,7 @@ def validate_ride_otp(request):
         return Response({"error": "Invalid OTP"}, status=403)
 
 
-
 # To display accepted rides for a worker
-
-
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.db.models import Q
-from datetime import datetime
-from .models import Rider, WorkerProfile  # import your models
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
