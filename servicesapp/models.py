@@ -40,11 +40,14 @@ class OTP(models.Model):
 def worker_photo_path(instance, filename):
     return f'workers/{instance.id}/photos/{filename}'
 
+
 def worker_document_path(instance, filename):
     return f'workers/{instance.id}/documents/{filename}'
 
+
 def worker_certification_path(instance, filename):
     return f'workers/{instance.id}/certifications/{filename}'
+
 
 class WorkerProfile(models.Model):
     WORK_TYPE_CHOICES = [
@@ -354,7 +357,6 @@ class Orders(models.Model):
         ('Completed', 'Completed'),
         ('Cancelled', 'Cancelled'),
     )
-    
     customer_phone = models.CharField(max_length=15)
     subcategory_name = models.CharField(max_length=100, blank=True)
     booking_date = models.DateField()
@@ -367,10 +369,11 @@ class Orders(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     worker_phone = models.CharField(max_length=20, null=True, blank=True)
-    rating = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
+    rating = models.DecimalField(max_digits=3, decimal_places=1,
+                                 null=True, blank=True)
     feedback_submitted = models.BooleanField(default=False)
     feedback_text = models.TextField(blank=True, null=True)
-    contact_disabled = models.BooleanField(default=False)  # Explicit contact control
+    contact_disabled = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-created_at']
@@ -409,12 +412,12 @@ class ServicePerson(models.Model):
         help_text="Whether the service person is currently available"
     )
     current_latitude = models.FloatField(
-        null=True, 
+        null=True,
         blank=True,
         help_text="Last known latitude coordinate"
     )
     current_longitude = models.FloatField(
-        null=True, 
+        null=True,
         blank=True,
         help_text="Last known longitude coordinate"
     )
@@ -483,9 +486,11 @@ class Ride(models.Model):
         max_length=20, choices=STATUS_CHOICES, default='requested')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True,
+                               blank=True)
     distance = models.FloatField(null=True, blank=True)
-    vehicle_type = models.CharField(max_length=50, choices=ServicePerson.VEHICLE_TYPES)
+    vehicle_type = models.CharField(max_length=50,
+                                    choices=ServicePerson.VEHICLE_TYPES)
     otp_code = models.CharField(max_length=10, blank=True, null=True)
     is_paid = models.BooleanField(default=False)
 
@@ -509,7 +514,8 @@ class Rider(models.Model):
     drop_latitude = models.FloatField()
     drop_longitude = models.FloatField()
 
-    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    fare = models.DecimalField(max_digits=10, decimal_places=2, null=True,
+                               blank=True)
     distance = models.FloatField(null=True, blank=True)
     vehicle_type = models.CharField(max_length=50)
     otp_code = models.CharField(max_length=10, blank=True, null=True)
