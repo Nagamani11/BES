@@ -169,7 +169,7 @@ class LocationHistorySerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-# Store in data to accepted orders 
+# Store in data to accepted orders
 class RideSerializer(serializers.ModelSerializer):
     pickup_map_url = serializers.SerializerMethodField()
     drop_map_url = serializers.SerializerMethodField()
