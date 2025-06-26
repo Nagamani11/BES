@@ -1428,14 +1428,17 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
+# Constants
 MINIMUM_RECHARGE = 50
-RIDE_WORK_TYPES = ['bike_taxi', 'auto_taxi', 'car_taxi']
-RIDE_VEHICLE_TYPES = ['bike', 'auto', 'car']
-RIDE_TYPE_MAP = {
+RIDE_WORK_TYPES = {
     'bike_taxi': 'bike',
-    'auto_taxi': 'auto',
-    'car_taxi': 'car'
+    'auto_taxi': 'auto', 
+    'car_taxi': 'car',
+    'Bike Taxi': 'bike',
+    'Auto Taxi': 'auto',
+    'Car Taxi': 'car'
 }
+RIDE_VEHICLE_TYPES = ['bike', 'auto', 'car']
 
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
@@ -1478,17 +1481,22 @@ def rider_job_action(request):
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
-    # Normalize work_type (handle both label and value)
-    work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
-    if not work_type_key or work_type_key not in ['Bike Taxi', 'Auto Taxi', 'Car Taxi']:
+    # Get work type and validate
+    work_type = worker.work_type
+    
+    # Handle case where work_type might be a list
+    if isinstance(work_type, list):
+        work_type = work_type[0] if work_type else ""
+    
+    # Check if valid ride service provider
+    vehicle_type = RIDE_WORK_TYPES.get(work_type)
+    if not vehicle_type:
         return Response({
             "error": "You are not registered as a Ride service provider",
-            "hint": "Please set your work type to Bike Taxi / Auto Taxi / Car Taxi."
+            "hint": "Please set your work type to Bike Taxi, Auto Taxi or Car Taxi"
         }, status=403)
 
-    vehicle_type = RIDE_TYPE_MAP.get(work_type_key.lower())
-    
-    # Get or create service person
+    # Get or create service person record
     service_person, created = ServicePerson.objects.get_or_create(
         worker_profile=worker,
         defaults={
@@ -1501,11 +1509,10 @@ def rider_job_action(request):
     if service_person.vehicle_type not in RIDE_VEHICLE_TYPES:
         return Response({
             "error": "Invalid vehicle type configuration",
-            "vehicle_type": service_person.vehicle_type,
-            "hint": f"Vehicle type must be one of: {', '.join(RIDE_VEHICLE_TYPES)}"
+            "hint": f"Contact support to fix your vehicle type (current: {service_person.vehicle_type})"
         }, status=400)
 
-    # Balance check
+    # Check balance
     balance = get_worker_balance(worker.phone_number)
     if balance < MINIMUM_RECHARGE and action == "fetch":
         return Response({
@@ -1514,6 +1521,7 @@ def rider_job_action(request):
             "balance": float(balance)
         }, status=403)
 
+    # FETCH RIDE JOBS
     if action == "fetch":
         assigned_ride_ids = Rider.objects.values_list('ride', flat=True)
         rides = Ride.objects.filter(
@@ -1534,6 +1542,7 @@ def rider_job_action(request):
 
         return Response({"data": data, "balance": float(balance)})
 
+    # ACCEPT RIDE
     elif action == "accept":
         if not ride_id:
             return Response({"error": "ride_id is required for accept"}, status=400)
@@ -1582,6 +1591,7 @@ def rider_job_action(request):
             "balance": float(get_worker_balance(worker.phone_number))
         })
 
+    # CANCEL RIDE
     elif action == "cancel":
         if not ride_id:
             return Response({"error": "ride_id is required for cancel"}, status=400)
@@ -1606,7 +1616,6 @@ def rider_job_action(request):
         return Response({"message": "Ride cancelled and reopened for others"})
 
     return Response({"error": "Invalid action"}, status=400)
-
 
 # To show in admin panel all rides
 
