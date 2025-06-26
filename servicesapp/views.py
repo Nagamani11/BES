@@ -972,64 +972,36 @@ def notifications(request):
     return Response({"notifications": data})
 
 # In single API
-
+from django.db.models import Sum
+from django.utils import timezone
+from django.core.cache import cache
+from datetime import timedelta
+from decimal import Decimal
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 
 WORK_TYPE_KEYWORDS = {
-    'Daily Helpers': [
-        "Welder", "Fitter", "Mason", "Carpenter", "Painter",
-        "Daily Helper", "Water Tank Cleaning"
-    ],
-    'Cook and Clean': [
-        "Cook", "House Cleaner", "Dishwasher"
-    ],
-    'Drivers': [
-        "Personal Driver", "Long Trip Driver", "Rental Car Driver"
-    ],
-    'Play Zone': [
-        "Kids Play Zone", "Box Cricket", "Badminton"
-    ],
-    'Child and Adults Care': [
-        "Childcare Provider", "Elder Caregiver", "Special Needs Care"
-    ],
-    'Pet Care': [
-        "Dog Walker", "Pet Groomer", "Pet Care Taker", "Pet Home Service"
-    ],
-    'Beauty and Salon': [
-        "Eyebrows Shaping", "Mehndi", "Makeup Services", "Nail Art",
-        "Pedicure and Manicure", "Waxing Basics", "Waxing Premium",
-        "Haircut", "Head Massage", "Body Massage"
-    ],
-    'Mens Salon': [
-        "Haircut", "Style Haircut (Creative)", "Oil Head Massage",
-        "Hair Colour", "Facial (Normal)", "Body Massage (Normal)", "Shaving or Trimming"
-    ],
-    'Electrician and AC Service': [
-        "Wiring and Installation", "Fan and Light Repair",
-        "Switchboard Fixing", "Appliance Repair", "AC Repair"
-    ],
-    'Tutors': [
-        "School Tutor", "BTech Subjects", "Spoken English Trainer",
-        "Software Courses Java", "Software Courses Python"
-    ],
-    'Plumber': [
-        "Leak Repair", "Tap and Pipe Installation", "Drainage and Sewage"
-    ],
-    'Decor Services': [
-        "Event Decor", "Birthday and Party Decoration",
-        "DJ", "Event Lighting", "Event Tent House"
-    ],
-    'Nursing': [
-        "Injection and IV Drip", "Wound Dressing",
-        "Blood Pressure and Diabetes Monitoring",
-        "Orthopedic Physiotherapy", "Neurological Physiotherapy",
-        "Pediatric Physiotherapy"
-    ],
-    'Laundry': [
-        "Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"
-    ],
-    'Swimming': [
-        "Kids Swimming", "Trainer Swim", "Adult Swimming"
-    ]
+    'Daily Helpers': ["Welder", "Fitter", "Mason", "Carpenter", "Painter", "Daily Helper", "Water Tank Cleaning"],
+    'Cook and Clean': ["Cook", "House Cleaner", "Dishwasher"],
+    'Drivers': ["Personal Driver", "Long Trip Driver", "Rental Car Driver"],
+    'Play Zone': ["Kids Play Zone", "Box Cricket", "Badminton"],
+    'Child and Adults Care': ["Childcare Provider", "Elder Caregiver", "Special Needs Care"],
+    'Pet Care': ["Dog Walker", "Pet Groomer", "Pet Care Taker", "Pet Home Service"],
+    'Beauty and Salon': ["Eyebrows Shaping", "Mehndi", "Makeup Services", "Nail Art", "Pedicure and Manicure", 
+                         "Waxing Basics", "Waxing Premium", "Haircut", "Head Massage", "Body Massage"],
+    'Mens Salon': ["Haircut", "Style Haircut (Creative)", "Oil Head Massage", "Hair Colour", 
+                   "Facial (Normal)", "Body Massage (Normal)", "Shaving or Trimming"],
+    'Electrician and AC Service': ["Wiring and Installation", "Fan and Light Repair", "Switchboard Fixing", 
+                                   "Appliance Repair", "AC Repair"],
+    'Tutors': ["School Tutor", "BTech Subjects", "Spoken English Trainer", "Software Courses Java", 
+               "Software Courses Python"],
+    'Plumber': ["Leak Repair", "Tap and Pipe Installation", "Drainage and Sewage"],
+    'Decor Services': ["Event Decor", "Birthday and Party Decoration", "DJ", "Event Lighting", "Event Tent House"],
+    'Nursing': ["Injection and IV Drip", "Wound Dressing", "Blood Pressure and Diabetes Monitoring",
+                "Orthopedic Physiotherapy", "Neurological Physiotherapy", "Pediatric Physiotherapy"],
+    'Laundry': ["Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"],
+    'Swimming': ["Kids Swimming", "Trainer Swim", "Adult Swimming"]
 }
 
 WORK_TYPE_KEY_MAP = {
@@ -1048,7 +1020,6 @@ WORK_TYPE_KEY_MAP = {
     "nursing": "Nursing",
     "laundry": "Laundry",
     "swimming": "Swimming",
-    # Also allow Title Case keys for direct match
     "Beauty and Salon": "Beauty and Salon",
     "Mens Salon": "Mens Salon",
     "Daily Helpers": "Daily Helpers",
@@ -1063,10 +1034,8 @@ WORK_TYPE_KEY_MAP = {
     "Decor Services": "Decor Services",
     "Nursing": "Nursing",
     "Laundry": "Laundry",
-    "Swimming": "Swimming",
+    "Swimming": "Swimming"
 }
-
-MINIMUM_RECHARGE = 50
 
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
@@ -1108,6 +1077,14 @@ def worker_job_action(request):
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
+    # First check if this is a ride service worker
+    work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
+    if work_type_key in ['Bike Taxi', 'Auto Taxi', 'Car Taxi']:
+        return Response({
+            "error": "Use /rider_job_action for ride services",
+            "hint": f"You are registered as a {work_type_key} provider"
+        }, status=400)
+
     balance = get_worker_balance(worker.phone_number)
     now = timezone.now()
     cache_key = f"low_balance_notify_{worker.phone_number}"
@@ -1116,10 +1093,7 @@ def worker_job_action(request):
 
     should_notify = (
         balance < MINIMUM_RECHARGE and
-        (
-            not last_notify or
-            now - last_notify > notify_interval
-        )
+        (not last_notify or now - last_notify > notify_interval)
     )
 
     if should_notify:
@@ -1138,16 +1112,25 @@ def worker_job_action(request):
             "balance": float(balance)
         }, status=403)
 
-    work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
-    keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
-    if not keywords:
-        return Response({"message": "No keywords mapped for this work type."}, status=204)
+    work_type_raw = worker.work_type
+    if isinstance(work_type_raw, list):
+        work_type_raw = work_type_raw[0] if work_type_raw else ""
 
-    # FETCH ACTION
+    work_type_key = WORK_TYPE_KEY_MAP.get(work_type_raw, work_type_raw)
+
+    if not isinstance(WORK_TYPE_KEYWORDS, dict):
+        return Response({"error": "WORK_TYPE_KEYWORDS misconfigured"}, status=500)
+
+    keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
+
+    if not isinstance(keywords, list):
+        return Response({"error": "Invalid keyword mapping for this work type."}, status=500)
+
+    if not keywords:
+        return Response({"message": "No jobs available for your work type"}, status=204)
+
     if action == "fetch":
-        # Get all accepted orders as a set of tuples for fast lookup
         accepted_orders = set(Orders.objects.values_list('booking_date', 'booking_time', 'customer_phone'))
-        # Only show jobs from Payment table that are not already accepted (not in Orders)
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
             status__in=["Pending", "Scheduled"]
@@ -1155,7 +1138,6 @@ def worker_job_action(request):
 
         results = []
         for obj in payments:
-            # Exclude if already accepted (same date, time, customer)
             if (obj.booking_date, obj.booking_time, obj.customer_phone) in accepted_orders:
                 continue
             results.append({
@@ -1172,7 +1154,6 @@ def worker_job_action(request):
 
         return Response({"data": results, "balance": float(balance)})
 
-    # ACCEPT ACTION
     elif action == "accept":
         if not booking_id:
             return Response({"error": "booking_id is required for accept"}, status=400)
@@ -1198,7 +1179,6 @@ def worker_job_action(request):
                 return Response(
                     {"error": "Insufficient balance to accept this order."},
                     status=403)
-
             deduct_worker_balance(worker.phone_number, total_deduction)
 
         Orders.objects.create(
@@ -1231,7 +1211,6 @@ def worker_job_action(request):
             "balance": float(get_worker_balance(worker.phone_number))
         })
 
-    # CANCEL ACTION
     elif action == "cancel":
         if not booking_id:
             return Response({"error": "booking_id is required for cancel"}, status=400)
@@ -1442,18 +1421,20 @@ def service_persons(request):
 
 # Rider Job action API
 
+from django.db.models import Sum
+from django.utils import timezone
+from decimal import Decimal
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 
 MINIMUM_RECHARGE = 50
-
-WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']
-
-WORK_TYPE_MAP = {
-    'Bike Taxi': 'bike_taxi',
-    'Auto Taxi': 'auto_taxi',
-    'Car Taxi': 'car_taxi',
-    'bike_taxi': 'bike_taxi',
-    'auto_taxi': 'auto_taxi',
-    'car_taxi': 'car_taxi',
+RIDE_WORK_TYPES = ['bike_taxi', 'auto_taxi', 'car_taxi']
+RIDE_VEHICLE_TYPES = ['bike', 'auto', 'car']
+RIDE_TYPE_MAP = {
+    'bike_taxi': 'bike',
+    'auto_taxi': 'auto',
+    'car_taxi': 'car'
 }
 
 def normalize_phone(phone):
@@ -1466,13 +1447,11 @@ def get_worker_balance(phone_number):
         transaction_type='credit',
         is_paid=True
     ).aggregate(total=Sum('amount'))['total'] or 0
-
     debits = Recharge.objects.filter(
         phone_number__endswith=normalized,
         transaction_type='debit',
         is_paid=True
     ).aggregate(total=Sum('amount'))['total'] or 0
-
     return credits - debits
 
 def deduct_worker_balance(phone_number, amount):
@@ -1500,15 +1479,16 @@ def rider_job_action(request):
         return Response({"error": "Worker not found"}, status=404)
 
     # Normalize work_type (handle both label and value)
-    work_type_key = WORK_TYPE_MAP.get(worker.work_type)
-    if not work_type_key:
+    work_type_key = WORK_TYPE_KEY_MAP.get(worker.work_type, worker.work_type)
+    if not work_type_key or work_type_key not in ['Bike Taxi', 'Auto Taxi', 'Car Taxi']:
         return Response({
-            "error": "You are not registered as a Ride service provider (Bike/Auto/Car)",
+            "error": "You are not registered as a Ride service provider",
             "hint": "Please set your work type to Bike Taxi / Auto Taxi / Car Taxi."
         }, status=403)
 
-    vehicle_type = work_type_key.split('_')[0]  # bike, auto, car
-
+    vehicle_type = RIDE_TYPE_MAP.get(work_type_key.lower())
+    
+    # Get or create service person
     service_person, created = ServicePerson.objects.get_or_create(
         worker_profile=worker,
         defaults={
@@ -1517,17 +1497,16 @@ def rider_job_action(request):
         }
     )
 
-    if service_person.vehicle_type not in WORK_TYPE_KEYWORDS:
+    # Validate vehicle type
+    if service_person.vehicle_type not in RIDE_VEHICLE_TYPES:
         return Response({
-            "error": "Invalid vehicle type for ride job access",
-            "vehicle_type": service_person.vehicle_type
-        }, status=403)
+            "error": "Invalid vehicle type configuration",
+            "vehicle_type": service_person.vehicle_type,
+            "hint": f"Vehicle type must be one of: {', '.join(RIDE_VEHICLE_TYPES)}"
+        }, status=400)
 
-    # Balance and low balance notification
+    # Balance check
     balance = get_worker_balance(worker.phone_number)
-    now = timezone.now()
-    # (You can add notification logic here if needed)
-
     if balance < MINIMUM_RECHARGE and action == "fetch":
         return Response({
             "error": "Low balance",
@@ -1535,7 +1514,6 @@ def rider_job_action(request):
             "balance": float(balance)
         }, status=403)
 
-    # FETCH Ride Jobs
     if action == "fetch":
         assigned_ride_ids = Rider.objects.values_list('ride', flat=True)
         rides = Ride.objects.filter(
@@ -1556,7 +1534,6 @@ def rider_job_action(request):
 
         return Response({"data": data, "balance": float(balance)})
 
-    # ACCEPT Ride
     elif action == "accept":
         if not ride_id:
             return Response({"error": "ride_id is required for accept"}, status=400)
@@ -1599,15 +1576,12 @@ def rider_job_action(request):
             updated_at=timezone.now()
         )
 
-        # (Optional: send notification here)
-
         return Response({
             "message": "Ride accepted",
             "ride_id": ride.id,
             "balance": float(get_worker_balance(worker.phone_number))
         })
 
-    # CANCEL Ride
     elif action == "cancel":
         if not ride_id:
             return Response({"error": "ride_id is required for cancel"}, status=400)
@@ -1629,11 +1603,10 @@ def rider_job_action(request):
         ride.updated_at = timezone.now()
         ride.save(update_fields=["status", "updated_at"])
 
-        # (Optional: send notification here)
-
         return Response({"message": "Ride cancelled and reopened for others"})
 
     return Response({"error": "Invalid action"}, status=400)
+
 
 # To show in admin panel all rides
 
