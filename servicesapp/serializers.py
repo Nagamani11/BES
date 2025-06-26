@@ -32,6 +32,26 @@ class WorkerProfileSerializer(serializers.ModelSerializer):
 
         return data
 
+    def get_photo_url(self, obj):
+        if obj.photo and hasattr(obj.photo, 'url'):
+            request = self.context.get('request')
+            return request.build_absolute_uri(obj.photo.url)
+        return None
+
+    def get_document_urls(self, obj):
+        request = self.context.get('request')
+        return [
+            request.build_absolute_uri(f'/media/workers/{obj.id}/documents/{filename}')
+            for filename in (obj.document_files or [])
+        ]
+
+    def get_certification_urls(self, obj):
+        request = self.context.get('request')
+        return [
+            request.build_absolute_uri(f'/media/workers/{obj.id}/certifications/{filename}')
+            for filename in (obj.certification_files or [])
+        ]
+    
 # Recharge models
 
 
