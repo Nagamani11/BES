@@ -334,7 +334,8 @@ def register_worker(request):
 def get_registered_employees(request):
     try:
         workers = WorkerProfile.objects.all().order_by('-created_at')
-        serializer = WorkerProfileSerializer(workers, many=True)
+        serializer = WorkerProfileSerializer(
+            workers, many=True, context={'request': request})
         return Response({
             "status": True,
             "message": "All registered workers fetched successfully.",
