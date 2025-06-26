@@ -38,7 +38,53 @@ from .serializers import (
     NearbyServicePersonSerializer
 )
 from .models import ServicePerson, LocationHistory
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from datetime import datetime
+from .models import Rider
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.db.models import Q, Sum
+from django.utils import timezone
+from datetime import timedelta
+from django.core.cache import cache
+from decimal import Decimal
+from .models import WorkerProfile, Orders, Payment, Notification, Recharge
 from geopy.distance import geodesic
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
+from rest_framework import status
+from .models import ServicePerson, LocationHistory
+from .serializers import NearbyServicePersonSerializer
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.utils import timezone
+from django.core.cache import cache
+from django.db.models import Sum
+from decimal import Decimal
+from datetime import timedelta
+from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from django.utils import timezone
+from decimal import Decimal
+from datetime import timedelta
+from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
+from rest_framework import status
+from geopy.geocoders import Nominatim
+from .models import ServicePerson, LocationHistory, WorkerProfile
+
 
 
 logger = logging.getLogger(__name__)
@@ -206,9 +252,9 @@ def worker_form(request):
 
     return Response({'message': 'Worker profile created successfully.'}, status=status.HTTP_200_OK)
 
+
 # GET  and POSTAPI for FORM
 
-from .models import WorkerProfile, worker_document_path, worker_certification_path, worker_photo_path
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def register_worker(request):
@@ -925,15 +971,7 @@ def notifications(request):
     return Response({"notifications": data})
 
 # In single API
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.db.models import Q, Sum
-from django.utils import timezone
-from datetime import timedelta
-from django.core.cache import cache
-from decimal import Decimal
-from .models import WorkerProfile, Orders, Payment, Notification, Recharge
+
 
 WORK_TYPE_KEYWORDS = {
     'Daily Helpers': [
@@ -1229,7 +1267,6 @@ def worker_job_action(request):
     return Response({"error": "Invalid action"}, status=400)
 
 
-
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def get_accepted_orders(request):
@@ -1307,42 +1344,32 @@ def get_accepted_orders(request):
     return Response({"data": results})
 
 
-
 # Rapido and taxi location APIs
 
-from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
-from rest_framework import status
-
-from .models import ServicePerson, LocationHistory
-from .serializers import NearbyServicePersonSerializer
 
 geolocator = Nominatim(user_agent="prudvi.nayak@hifix.in")
+
 
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def service_persons(request):
-    # --- POST: Update location ---
+    # ---------- POST: Update location ----------
     if request.method == 'POST':
-        service_person_id = request.data.get('id')
+        phone = request.data.get('phone')
         latitude = request.data.get('latitude')
         longitude = request.data.get('longitude')
 
-        if not all([service_person_id, latitude, longitude]):
-            return Response({'error': 'Missing id, latitude, or longitude'},
+        if not all([phone, latitude, longitude]):
+            return Response({'error': 'Missing phone, latitude, or longitude'},
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            service_person = ServicePerson.objects.get(id=service_person_id)
+            service_person = ServicePerson.objects.get(worker_profile__phone_number=phone)
             service_person.current_latitude = float(latitude)
             service_person.current_longitude = float(longitude)
             service_person.save()
 
-            # Optional: Save to location history
+            # Save to location history
             LocationHistory.objects.create(
                 service_person=service_person,
                 latitude=latitude,
@@ -1350,12 +1377,13 @@ def service_persons(request):
             )
 
             return Response({'status': 'Location updated successfully'})
+
         except ServicePerson.DoesNotExist:
-            return Response({'error': 'Service person not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'ServicePerson not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # --- GET: Nearby service persons ---
+    # ---------- GET: Nearby service persons ----------
     serializer = NearbyServicePersonSerializer(data=request.query_params)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -1363,10 +1391,11 @@ def service_persons(request):
     data = serializer.validated_data
     user_coords = (data['latitude'], data['longitude'])
     radius = data['radius']
+    vehicle_type = data.get('vehicle_type')
 
     queryset = ServicePerson.objects.filter(is_available=True)
-    if data.get('vehicle_type'):
-        queryset = queryset.filter(vehicle_type=data['vehicle_type'])
+    if vehicle_type:
+        queryset = queryset.filter(vehicle_type=vehicle_type)
 
     nearby_list = []
 
@@ -1384,10 +1413,12 @@ def service_persons(request):
                         address = "Reverse geocoding failed"
 
                     name = getattr(person.worker_profile, "full_name", "Unknown")
+                    phone = getattr(person.worker_profile, "phone_number", "")
 
                     nearby_list.append({
                         "id": person.id,
                         "name": name,
+                        "phone": phone,
                         "vehicle_type": person.vehicle_type,
                         "distance_km": round(distance_km, 2),
                         "location": address,
@@ -1407,67 +1438,9 @@ def service_persons(request):
 
 
 
+
 # Rider Job action API
 
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.utils import timezone
-from django.core.cache import cache
-from django.db.models import Sum
-from decimal import Decimal
-from datetime import timedelta
-
-from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
-
-MINIMUM_RECHARGE = 50
-
-WORK_TYPE_KEYWORDS = ['bike', 'auto', 'car']  # used for validation
-
-WORK_TYPE_MAP = {
-    'Bike Taxi': 'bike_taxi',
-    'Auto Taxi': 'auto_taxi',
-    'Car Taxi': 'car_taxi',
-    'bike_taxi': 'bike_taxi',
-    'auto_taxi': 'auto_taxi',
-    'car_taxi': 'car_taxi',
-}
-
-def normalize_phone(phone):
-    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
-
-def get_worker_balance(phone_number):
-    normalized = normalize_phone(phone_number)
-    credits = Recharge.objects.filter(
-        phone_number__endswith=normalized,
-        transaction_type='credit',
-        is_paid=True
-    ).aggregate(total=Sum('amount'))['total'] or 0
-
-    debits = Recharge.objects.filter(
-        phone_number__endswith=normalized,
-        transaction_type='debit',
-        is_paid=True
-    ).aggregate(total=Sum('amount'))['total'] or 0
-
-    return credits - debits
-
-def deduct_worker_balance(phone_number, amount):
-    Recharge.objects.create(
-        phone_number=phone_number,
-        amount=amount,
-        transaction_type='debit',
-        is_paid=True
-    )
-
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.utils import timezone
-from decimal import Decimal
-from datetime import timedelta
-
-from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
 
 MINIMUM_RECHARGE = 50
 
@@ -1710,17 +1683,8 @@ def validate_ride_otp(request):
     else:
         return Response({"error": "Invalid OTP"}, status=403)
 
-
-
 # To display accepted rides for a worker
 
-
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.db.models import Q
-from datetime import datetime
-from .models import Rider, WorkerProfile  # import your models
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -1730,10 +1694,11 @@ def get_accepted_rides(request):
         return Response({"error": "Phone number is required"}, status=400)
 
     def normalize_phone(phone):
-        return phone.replace(" ", "").replace("-", "").replace("+91", "").strip()
+        return phone.replace(" ", "").replace("-", "").replace("+91", "").strip()[-10:]
 
     normalized = normalize_phone(phone)
 
+    # Filter rides accepted by this worker
     riders = Rider.objects.filter(
         rider_phone__endswith=normalized,
         status__in=["Confirmed", "Completed"]
@@ -1742,7 +1707,7 @@ def get_accepted_rides(request):
     data = []
     for r in riders:
         data.append({
-            "ride_id": r.ride.id,
+            "ride_id": r.ride.id if r.ride else None,
             "status": r.status,
             "pickup_address": r.pickup_address,
             "drop_address": r.drop_address,
@@ -1750,7 +1715,9 @@ def get_accepted_rides(request):
             "distance": r.distance,
             "vehicle_type": r.vehicle_type,
             "created_at": r.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            "is_paid": r.is_paid
+            "is_paid": r.is_paid,
+            "rider_phone": r.rider_phone,
+            "customer_phone": r.customer_phone,
         })
 
     return Response({"data": data})
