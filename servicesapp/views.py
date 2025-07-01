@@ -20,60 +20,28 @@ from .serializers import GenerateOTPSerializer, OrdersSerializer
 from django.core.mail import send_mail
 from .models import Recharge
 from django.contrib.auth import authenticate
-from django.db.models import Sum
 from .models import Notification
 import re
-from rest_framework.pagination import PageNumberPagination
 from django.db.models import Q
 from .serializers import OrderSerializer
 from .models import UserProfile
 from django.db import transaction
 from servicesapp.models import Orders
 from decimal import Decimal
-from django.core.cache import cache
 import json
 from django.core.files.storage import default_storage
 from .serializers import (
     NearbyServicePersonSerializer
 )
-from .models import ServicePerson, LocationHistory
-from rest_framework.response import Response
-from datetime import datetime
+from .models import LocationHistory
 from .models import Rider
-from rest_framework.response import Response
-from django.db.models import Q, Sum
-from django.utils import timezone
-from datetime import timedelta
 from django.core.cache import cache
-from decimal import Decimal
-from .models import WorkerProfile, Orders, Payment, Notification, Recharge
 from geopy.distance import geodesic
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from rest_framework import status
-from .models import ServicePerson, LocationHistory
-from .serializers import NearbyServicePersonSerializer
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.utils import timezone
-from django.core.cache import cache
 from django.db.models import Sum
-from decimal import Decimal
-from datetime import timedelta
-from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from django.utils import timezone
-from decimal import Decimal
-from datetime import timedelta
-from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
-from rest_framework import status
+from .models import Ride
 from geopy.geocoders import Nominatim
-from .models import ServicePerson, LocationHistory, WorkerProfile
+from .models import ServicePerson
 import os
 
 
@@ -225,7 +193,8 @@ def worker_form(request):
     doc_files = request.FILES.getlist('document_files')
     doc_paths = []
     for doc_file in doc_files:
-        path = default_storage.save(f'workers/documents/{doc_file.name}', doc_file)
+        path = default_storage.save(
+            f'workers/documents/{doc_file.name}', doc_file)
         doc_paths.append(path)
     worker.document_files = doc_paths  # Already a list
 
@@ -233,7 +202,8 @@ def worker_form(request):
     cert_files = request.FILES.getlist('certification_files')
     cert_paths = []
     for cert_file in cert_files:
-        path = default_storage.save(f'workers/certifications/{cert_file.name}', cert_file)
+        path = default_storage.save(
+            f'workers/certifications/{cert_file.name}', cert_file)
         cert_paths.append(path)
     worker.certification_files = cert_paths  # Already a list
 
@@ -1160,7 +1130,9 @@ def worker_job_action(request):
                         status=204)
 
     if action == "fetch":
-        accepted_orders = set(Orders.objects.values_list('booking_date', 'booking_time', 'customer_phone'))
+        accepted_orders = set(Orders.objects.values_list('booking_date',
+                                                         'booking_time',
+                                                         'customer_phone'))
         payments = Payment.objects.filter(
             subcategory_name__in=keywords,
             status__in=["Pending", "Scheduled"]
@@ -1186,7 +1158,8 @@ def worker_job_action(request):
 
     elif action == "accept":
         if not booking_id:
-            return Response({"error": "booking_id is required for accept"}, status=400)
+            return Response({"error": "booking_id is required for accept"},
+                            status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id, status="Pending")
@@ -1201,7 +1174,8 @@ def worker_job_action(request):
             booking_time=payment.booking_time,
             customer_phone=payment.customer_phone
         ).exists():
-            return Response({"error": "This order is already accepted"}, status=400)
+            return Response({"error": "This order is already accepted"},
+                            status=400)
 
         # 10% cut
         cut_amount = payment.amount * Decimal('0.10')
@@ -1313,7 +1287,8 @@ def get_accepted_orders(request):
         return phone.replace(" ", "").replace("-", "").replace("+91", "").strip()
 
     normalized_phone = normalize_phone(worker_phone)
-    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+    worker = WorkerProfile.objects.filter(
+        phone_number__endswith=normalized_phone).first()
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
@@ -1356,7 +1331,6 @@ def get_accepted_orders(request):
             customer_phone=order.customer_phone,
             subcategory_name=order.subcategory_name
         ).first()
-        
         if payment:
             results.append({
                 "order_id": order.id,
@@ -1524,7 +1498,8 @@ def rider_job_action(request):
         return Response({"error": "Phone number is required"}, status=400)
 
     normalized_phone = normalize_phone(phone)
-    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+    worker = WorkerProfile.objects.filter(
+        phone_number__endswith=normalized_phone).first()
 
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
@@ -1591,12 +1566,15 @@ def rider_job_action(request):
     # ACCEPT RIDE
     elif action == "accept":
         if not ride_id:
-            return Response({"error": "ride_id is required for accept"}, status=400)
+            return Response({"error": "ride_id is required for accept"},
+                            status=400)
 
         try:
             ride = Ride.objects.get(id=ride_id, status="requested")
         except Ride.DoesNotExist:
-            return Response({"error": "Ride not available or already accepted"}, status=404)
+            return Response(
+                {"error": "Ride not available or already accepted"},
+                status=404)
 
         if Rider.objects.filter(ride=ride).exists():
             return Response({"error": "Ride already accepted"}, status=400)
@@ -1615,7 +1593,8 @@ def rider_job_action(request):
 
         # Check balance
         if balance < total_deduction:
-            return Response({"error": "Insufficient balance to accept ride"}, status=403)
+            return Response({"error": "Insufficient balance to accept ride"},
+                            status=403)
 
         # Deduct balance
         deduct_worker_balance(worker.phone_number, total_deduction)
@@ -1671,7 +1650,8 @@ def rider_job_action(request):
     # CANCEL RIDE
     elif action == "cancel":
         if not ride_id:
-            return Response({"error": "ride_id is required for cancel"}, status=400)
+            return Response({"error": "ride_id is required for cancel"},
+                            status=400)
 
         try:
             ride = Ride.objects.get(id=ride_id)
