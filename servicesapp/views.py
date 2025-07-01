@@ -34,17 +34,12 @@ from django.core.cache import cache
 import json
 from django.core.files.storage import default_storage
 from .serializers import (
-    ServicePersonSerializer,
     NearbyServicePersonSerializer
 )
 from .models import ServicePerson, LocationHistory
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from datetime import datetime
 from .models import Rider
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.db.models import Q, Sum
 from django.utils import timezone
@@ -53,14 +48,12 @@ from django.core.cache import cache
 from decimal import Decimal
 from .models import WorkerProfile, Orders, Payment, Notification, Recharge
 from geopy.distance import geodesic
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from .models import ServicePerson, LocationHistory
 from .serializers import NearbyServicePersonSerializer
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
@@ -69,29 +62,26 @@ from django.db.models import Sum
 from decimal import Decimal
 from datetime import timedelta
 from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.utils import timezone
 from decimal import Decimal
 from datetime import timedelta
 from .models import WorkerProfile, Ride, Rider, Notification, Recharge, ServicePerson
-
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from geopy.geocoders import Nominatim
 from .models import ServicePerson, LocationHistory, WorkerProfile
-
+import os
 
 
 logger = logging.getLogger(__name__)
 
 
 def home(request):
-    return JsonResponse({"message": "Welcome to the Home Page!"})
+    return JsonResponse({"message": "Welcome to the Backend Services!"})
 
 
 # Configure logger
@@ -100,9 +90,9 @@ logging.basicConfig(level=logging.ERROR)
 
 # Twilio credentials
 # Twilio credentials
-TWILIO_ACCOUNT_SID = 'AC7abe4b38898c62f4479919dbb0844963'
-TWILIO_AUTH_TOKEN = '47cf3055e834e4afc2501aaea73beb4c'
-TWILIO_PHONE_NUMBER = '+19404779873'
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
 
 client_generate = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
@@ -250,7 +240,8 @@ def worker_form(request):
     # Final save
     worker.save()
 
-    return Response({'message': 'Worker profile created successfully.'}, status=status.HTTP_200_OK)
+    return Response({'message': 'Worker profile created successfully.'},
+                    status=status.HTTP_200_OK)
 
 
 # GET  and POSTAPI for FORM
@@ -263,9 +254,12 @@ def register_worker(request):
 
     if request.method == "GET":
         form_fields = {
-            "full_name": {"type": "text", "required": True, "label": "Full Name"},
-            "phone_number": {"type": "text", "required": True, "label": "Phone Number"},
-            "email": {"type": "email", "required": True, "label": "Email Address"},
+            "full_name": {"type": "text", "required": True,
+                          "label": "Full Name"},
+            "phone_number": {"type": "text", "required": True,
+                             "label": "Phone Number"},
+            "email": {"type": "email", "required": True,
+                      "label": "Email Address"},
             "work_type": {
                 "type": "select",
                 "required": True,
@@ -276,7 +270,8 @@ def register_worker(request):
                 "type": "select",
                 "required": False,
                 "label": "Education Level",
-                "choices": format_choices(WorkerProfile.EDUCATION_LEVEL_CHOICES),
+                "choices": format_choices(
+                    WorkerProfile.EDUCATION_LEVEL_CHOICES),
             },
             "years_of_experience": {
                 "type": "number",
@@ -289,11 +284,12 @@ def register_worker(request):
                 "label": "Country of Experience",
                 "choices": format_choices(WorkerProfile.COUNTRY_CHOICES),
             },
-            "specialization": {"type": "text", "required": False, "label": "Specialization"},
+            "specialization": {"type": "text", "required": False,
+                               "label": "Specialization"},
 
             # 👇 Updated to allow multiple selections
             "document_types": {
-                "type": "multiselect",   # Indicates frontend should allow selecting multiple values
+                "type": "multiselect",
                 "required": True,
                 "label": "Document Types",
                 "choices": format_choices(WorkerProfile.DOCUMENT_TYPE_CHOICES),
@@ -961,45 +957,68 @@ def notifications(request):
         return Response({"error": "Phone number is required"}, status=400)
 
     notifications = Notification.objects.filter(
-        phone_number=phone).order_by('-created_at')
-    data = [{
-        "title": n.title,
-        "message": n.message,
-        "created_at": n.created_at,
-        "order_id": n.order.id if n.order else None
-    } for n in notifications]
+        phone_number=phone
+    ).order_by('-created_at')
+
+    data = []
+    for n in notifications:
+        entry = {
+            "title": n.title,
+            "message": n.message,
+            "created_at": n.created_at,
+            "order_id": n.order.id if n.order else None,
+            "deduction_amount": None
+        }
+
+        # Try to extract ₹amount from the message text if pattern matches
+        try:
+            if "₹" in n.message and "deducted from your balance" in n.message:
+                amount_str = n.message.split("₹")[1].split(" ")[0].replace(',', '')
+                entry["deduction_amount"] = float(amount_str)
+        except (IndexError, ValueError):
+            entry["deduction_amount"] = None
+
+        data.append(entry)
 
     return Response({"notifications": data})
 
+
 # In single API
-from django.db.models import Sum
-from django.utils import timezone
-from django.core.cache import cache
-from datetime import timedelta
-from decimal import Decimal
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
+
 
 WORK_TYPE_KEYWORDS = {
-    'Daily Helpers': ["Welder", "Fitter", "Mason", "Carpenter", "Painter", "Daily Helper", "Water Tank Cleaning"],
+    'Daily Helpers': ["Welder", "Fitter", "Mason", "Carpenter", "Painter",
+                      "Daily Helper", "Water Tank Cleaning"],
     'Cook and Clean': ["Cook", "House Cleaner", "Dishwasher"],
     'Drivers': ["Personal Driver", "Long Trip Driver", "Rental Car Driver"],
     'Play Zone': ["Kids Play Zone", "Box Cricket", "Badminton"],
-    'Child and Adults Care': ["Childcare Provider", "Elder Caregiver", "Special Needs Care"],
-    'Pet Care': ["Dog Walker", "Pet Groomer", "Pet Care Taker", "Pet Home Service"],
-    'Beauty and Salon': ["Eyebrows Shaping", "Mehndi", "Makeup Services", "Nail Art", "Pedicure and Manicure", 
-                         "Waxing Basics", "Waxing Premium", "Haircut", "Head Massage", "Body Massage"],
-    'Mens Salon': ["Haircut", "Style Haircut (Creative)", "Oil Head Massage", "Hair Colour", 
-                   "Facial (Normal)", "Body Massage (Normal)", "Shaving or Trimming"],
-    'Electrician and AC Service': ["Wiring and Installation", "Fan and Light Repair", "Switchboard Fixing", 
+    'Child and Adults Care': ["Childcare Provider", "Elder Caregiver",
+                              "Special Needs Care"],
+    'Pet Care': ["Dog Walker", "Pet Groomer", "Pet Care Taker",
+                 "Pet Home Service"],
+    'Beauty and Salon': ["Eyebrows Shaping", "Mehndi", "Makeup Services",
+                         "Nail Art", "Pedicure and Manicure",
+                         "Waxing Basics", "Waxing Premium", "Haircut",
+                         "Head Massage", "Body Massage"],
+    'Mens Salon': ["Haircut", "Style Haircut (Creative)", "Oil Head Massage",
+                   "Hair Colour",
+                   "Facial (Normal)", "Body Massage (Normal)",
+                   "Shaving or Trimming"],
+    'Electrician and AC Service': ["Wiring and Installation",
+                                   "Fan and Light Repair",
+                                   "Switchboard Fixing",
                                    "Appliance Repair", "AC Repair"],
-    'Tutors': ["School Tutor", "BTech Subjects", "Spoken English Trainer", "Software Courses Java", 
+    'Tutors': ["School Tutor", "BTech Subjects", "Spoken English Trainer",
+               "Software Courses Java",
                "Software Courses Python"],
-    'Plumber': ["Leak Repair", "Tap and Pipe Installation", "Drainage and Sewage"],
-    'Decor Services': ["Event Decor", "Birthday and Party Decoration", "DJ", "Event Lighting", "Event Tent House"],
-    'Nursing': ["Injection and IV Drip", "Wound Dressing", "Blood Pressure and Diabetes Monitoring",
-                "Orthopedic Physiotherapy", "Neurological Physiotherapy", "Pediatric Physiotherapy"],
+    'Plumber': ["Leak Repair", "Tap and Pipe Installation",
+                "Drainage and Sewage"],
+    'Decor Services': ["Event Decor", "Birthday and Party Decoration", "DJ",
+                       "Event Lighting", "Event Tent House"],
+    'Nursing': ["Injection and IV Drip", "Wound Dressing",
+                "Blood Pressure and Diabetes Monitoring",
+                "Orthopedic Physiotherapy", "Neurological Physiotherapy",
+                "Pediatric Physiotherapy"],
     'Laundry': ["Cloth Washing", "Iron", "Washing and Iron", "Dry Cleaning"],
     'Swimming': ["Kids Swimming", "Trainer Swim", "Adult Swimming"]
 }
@@ -1037,8 +1056,12 @@ WORK_TYPE_KEY_MAP = {
     "Swimming": "Swimming"
 }
 
+MINIMUM_RECHARGE = 100
+
+
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()
+
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1054,6 +1077,7 @@ def get_worker_balance(phone_number):
     ).aggregate(total=Sum('amount'))['total'] or 0
     return credits - debits
 
+
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1061,6 +1085,7 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1073,7 +1098,8 @@ def worker_job_action(request):
         return Response({"error": "Phone number is required"}, status=400)
 
     normalized_phone = normalize_phone(phone)
-    worker = WorkerProfile.objects.filter(phone_number__endswith=normalized_phone).first()
+    worker = WorkerProfile.objects.filter(
+        phone_number__endswith=normalized_phone).first()
     if not worker:
         return Response({"error": "Worker not found"}, status=404)
 
@@ -1119,15 +1145,19 @@ def worker_job_action(request):
     work_type_key = WORK_TYPE_KEY_MAP.get(work_type_raw, work_type_raw)
 
     if not isinstance(WORK_TYPE_KEYWORDS, dict):
-        return Response({"error": "WORK_TYPE_KEYWORDS misconfigured"}, status=500)
+        return Response({"error": "WORK_TYPE_KEYWORDS misconfigured"},
+                        status=500)
 
     keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
 
     if not isinstance(keywords, list):
-        return Response({"error": "Invalid keyword mapping for this work type."}, status=500)
+        return Response(
+            {"error": "Invalid keyword mapping for this work type."},
+            status=500)
 
     if not keywords:
-        return Response({"message": "No jobs available for your work type"}, status=204)
+        return Response({"message": "No jobs available for your work type"},
+                        status=204)
 
     if action == "fetch":
         accepted_orders = set(Orders.objects.values_list('booking_date', 'booking_time', 'customer_phone'))
@@ -1161,8 +1191,11 @@ def worker_job_action(request):
         try:
             payment = Payment.objects.get(id=booking_id, status="Pending")
         except Payment.DoesNotExist:
-            return Response({"error": "This order is already accepted or not available"}, status=400)
+            return Response({
+                "error": "This order is already accepted or not available"
+            }, status=400)
 
+        # Check if already accepted
         if Orders.objects.filter(
             booking_date=payment.booking_date,
             booking_time=payment.booking_time,
@@ -1170,17 +1203,25 @@ def worker_job_action(request):
         ).exists():
             return Response({"error": "This order is already accepted"}, status=400)
 
+        # 10% cut
         cut_amount = payment.amount * Decimal('0.10')
+        tax_amount = Decimal(str(payment.tax_amount or 0))
         total_deduction = cut_amount
 
+        # Deduct tax if payment method is cash
         if payment.payment_method == "cash":
-            total_deduction += Decimal(str(payment.tax_amount or 0))
-            if balance < total_deduction:
-                return Response(
-                    {"error": "Insufficient balance to accept this order."},
-                    status=403)
-            deduct_worker_balance(worker.phone_number, total_deduction)
+            total_deduction += tax_amount
 
+        # Check balance
+        if balance < total_deduction:
+            return Response({
+                "error": "Insufficient balance to accept this order."
+            }, status=403)
+
+        # Deduct amount
+        deduct_worker_balance(worker.phone_number, total_deduction)
+
+        # Create Order
         Orders.objects.create(
             customer_phone=payment.customer_phone,
             subcategory_name=payment.subcategory_name,
@@ -1195,25 +1236,38 @@ def worker_job_action(request):
             worker_phone=worker.phone_number
         )
 
+        # Update Payment status
         payment.status = "Scheduled"
         payment.save()
+
+        # Notification Message
+        message_text = (
+            f"You accepted an order (Booking ID: {payment.id}) for "
+            f"{payment.subcategory_name} on {payment.service_date}. "
+            f"₹{total_deduction:.2f} was deducted from your balance."
+        )
 
         Notification.objects.create(
             category="Order",
             title="New Order Confirmed",
             phone_number=worker.phone_number,
-            message=f"You accepted an order (Booking ID: {payment.id}) for {payment.subcategory_name} on {payment.service_date}.",
+            message=message_text,
+            order=payment  # FK assumed
         )
 
         return Response({
-            "message": "Order accepted",
+            "message": message_text,
             "booking_id": payment.id,
+            "deduction_amount": float(total_deduction),
+            "cut_percentage": float(cut_amount),
+            "tax_amount": float(tax_amount),
             "balance": float(get_worker_balance(worker.phone_number))
         })
 
     elif action == "cancel":
         if not booking_id:
-            return Response({"error": "booking_id is required for cancel"}, status=400)
+            return Response({"error": "booking_id is required for cancel"},
+                            status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id)
@@ -1416,23 +1470,14 @@ def service_persons(request):
 
     return Response(nearby_list)
 
-
-
-
 # Rider Job action API
 
-from django.db.models import Sum
-from django.utils import timezone
-from decimal import Decimal
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
 
 # Constants
-MINIMUM_RECHARGE = 50
+MINIMUM_RECHARGE = 100
 RIDE_WORK_TYPES = {
     'bike_taxi': 'bike',
-    'auto_taxi': 'auto', 
+    'auto_taxi': 'auto',
     'car_taxi': 'car',
     'Bike Taxi': 'bike',
     'Auto Taxi': 'auto',
@@ -1440,8 +1485,10 @@ RIDE_WORK_TYPES = {
 }
 RIDE_VEHICLE_TYPES = ['bike', 'auto', 'car']
 
+
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
+
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1465,6 +1512,7 @@ def deduct_worker_balance(phone_number, amount):
         is_paid=True
     )
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def rider_job_action(request):
@@ -1483,11 +1531,9 @@ def rider_job_action(request):
 
     # Get work type and validate
     work_type = worker.work_type
-    
     # Handle case where work_type might be a list
     if isinstance(work_type, list):
         work_type = work_type[0] if work_type else ""
-    
     # Check if valid ride service provider
     vehicle_type = RIDE_WORK_TYPES.get(work_type)
     if not vehicle_type:
@@ -1555,16 +1601,31 @@ def rider_job_action(request):
         if Rider.objects.filter(ride=ride).exists():
             return Response({"error": "Ride already accepted"}, status=400)
 
-        deduction = Decimal('5.00')
-        if balance < deduction:
+        # Calculate deduction
+        fare = ride.fare or Decimal('0.00')
+        cut_amount = fare * Decimal('0.10')  # 10% commission
+        tax_amount = Decimal(str(ride.tax_amount or 0)) if hasattr(ride, 'tax_amount') else Decimal('0.00')
+        total_deduction = cut_amount
+
+        # If payment method is cash, include tax
+        if getattr(ride, 'payment_method', 'online') == 'cash':
+            total_deduction += tax_amount
+
+        total_deduction = total_deduction.quantize(Decimal('0.01'))
+
+        # Check balance
+        if balance < total_deduction:
             return Response({"error": "Insufficient balance to accept ride"}, status=403)
 
-        deduct_worker_balance(worker.phone_number, deduction)
+        # Deduct balance
+        deduct_worker_balance(worker.phone_number, total_deduction)
 
+        # Update ride status
         ride.status = 'accepted'
         ride.updated_at = timezone.now()
         ride.save(update_fields=['status', 'updated_at'])
 
+        # Create rider entry
         Rider.objects.create(
             ride=ride,
             rider_phone=worker.phone_number,
@@ -1585,9 +1646,25 @@ def rider_job_action(request):
             updated_at=timezone.now()
         )
 
+        # Notify
+        message_text = (
+            f"You accepted a ride (Ride ID: {ride.id}) from {ride.pickup_address} to "
+            f"{ride.drop_address}. ₹{total_deduction:.2f} was deducted from your balance."
+        )
+
+        Notification.objects.create(
+            category="Ride",
+            title="New Ride Accepted",
+            phone_number=worker.phone_number,
+            message=message_text
+        )
+
         return Response({
-            "message": "Ride accepted",
+            "message": message_text,
             "ride_id": ride.id,
+            "deduction_amount": float(total_deduction),
+            "cut_percentage": float(cut_amount),
+            "tax_amount": float(tax_amount),
             "balance": float(get_worker_balance(worker.phone_number))
         })
 
