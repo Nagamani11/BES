@@ -33,13 +33,14 @@ from django.core.files.storage import default_storage
 from .serializers import (
     NearbyServicePersonSerializer
 )
+import requests
 from .models import LocationHistory
 from .models import Rider
 from django.core.cache import cache
 from geopy.distance import geodesic
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Sum
-from .models import Ride
+from .models import Ride, PushToken
 from geopy.geocoders import Nominatim
 from .models import ServicePerson
 import os
@@ -919,6 +920,26 @@ def list_all_orders(request):
 # Notification API
 
 
+def normalize_phone(phone):
+    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
+
+
+def send_push_notification(expo_token, title, message):
+    payload = {
+        "to": expo_token,
+        "sound": "default",
+        "title": title,
+        "body": message
+    }
+    headers = {
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.post("https://exp.host/--/api/v2/push/send", json=payload, headers=headers)
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def notifications(request):
@@ -926,32 +947,56 @@ def notifications(request):
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
+    normalized_phone = normalize_phone(phone)
+
     notifications = Notification.objects.filter(
-        phone_number=phone
+        phone_number__endswith=normalized_phone
     ).order_by('-created_at')
 
     data = []
     for n in notifications:
-        entry = {
+        item = {
             "title": n.title,
             "message": n.message,
             "created_at": n.created_at,
             "order_id": n.order.id if n.order else None,
-            "deduction_amount": None
+            "deducted_amount": float(n.deducted_amount) if n.deducted_amount else None
         }
+        data.append(item)
 
-        # Try to extract ₹amount from the message text if pattern matches
+    # ✅ Send push notification for the latest notification only
+    if notifications.exists():
+        latest = notifications.first()
         try:
-            if "₹" in n.message and "deducted from your balance" in n.message:
-                amount_str = n.message.split("₹")[1].split(" ")[0].replace(',', '')
-                entry["deduction_amount"] = float(amount_str)
-        except (IndexError, ValueError):
-            entry["deduction_amount"] = None
-
-        data.append(entry)
+            push_token_obj = PushToken.objects.get(phone_number__endswith=normalized_phone)
+            send_push_notification(
+                expo_token=push_token_obj.expo_token,
+                title=latest.title,
+                message=latest.message
+            )
+        except PushToken.DoesNotExist:
+            pass  # No token found — skip push
 
     return Response({"notifications": data})
 
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def save_push_token(request):
+    phone = request.data.get("phone")
+    expo_token = request.data.get("expo_token")
+
+    if not phone or not expo_token:
+        return Response({"error": "Missing phone or expo_token"}, status=400)
+
+    normalized = normalize_phone(phone)
+
+    PushToken.objects.update_or_create(
+        phone_number=normalized,
+        defaults={"expo_token": expo_token}
+    )
+
+    return Response({"success": True})
 
 # In single API
 
@@ -1148,25 +1193,20 @@ def worker_job_action(request):
         ).exists():
             return Response({"error": "This order is already accepted"}, status=400)
 
-        # ✅ Calculate GST/tax and 10% cut only on (amount - tax)
         tax_amount = Decimal(str(payment.tax_amount or 0))
         subtotal = Decimal(str(payment.amount)) - tax_amount
         cut_amount = subtotal * Decimal('0.10')
 
-        # ✅ Deduct tax only if payment_method is "cash"
         if payment.payment_method == "cash":
             total_deduction = cut_amount + tax_amount
         else:
             total_deduction = cut_amount
 
-        # ✅ Properly round values
         cut_amount = cut_amount.quantize(Decimal("0.01"))
         total_deduction = total_deduction.quantize(Decimal("0.01"))
 
         if balance < total_deduction:
-            return Response({
-                "error": "Insufficient balance to accept this order."
-            }, status=403)
+            return Response({"error": "Insufficient balance to accept this order."}, status=403)
 
         deduct_worker_balance(worker.phone_number, total_deduction)
 
@@ -1187,28 +1227,23 @@ def worker_job_action(request):
         payment.status = "Scheduled"
         payment.save()
 
-        message_text = (
-            f"You accepted an order (Booking ID: {payment.id}) for "
-            f"{payment.subcategory_name} on {payment.service_date}. "
-            f"₹{total_deduction:.2f} was deducted from your balance."
-        )
-
         Notification.objects.create(
             category="Order",
             title="New Order Confirmed",
             phone_number=worker.phone_number,
-            message=message_text,
-            order=new_order
+            message=f"Booking ID {payment.id} accepted successfully.",
+            order=new_order,
+            deducted_amount=total_deduction
         )
 
         return Response({
-            "message": message_text,
             "booking_id": payment.id,
             "deduction_amount": float(total_deduction),
             "cut_percentage": float(cut_amount),
             "tax_amount": float(tax_amount if payment.payment_method == "cash" else 0),
             "balance": float(get_worker_balance(worker.phone_number))
         })
+
     elif action == "cancel":
         if not booking_id:
             return Response({"error": "booking_id is required for cancel"}, status=400)
@@ -1537,46 +1572,36 @@ def rider_job_action(request):
     # ACCEPT RIDE
     elif action == "accept":
         if not ride_id:
-            return Response({"error": "ride_id is required for accept"},
-                            status=400)
+            return Response({"error": "ride_id is required for accept"}, status=400)
 
         try:
             ride = Ride.objects.get(id=ride_id, status="requested")
         except Ride.DoesNotExist:
-            return Response(
-                {"error": "Ride not available or already accepted"},
-                status=404)
+            return Response({"error": "Ride not available or already accepted"}, status=404)
 
         if Rider.objects.filter(ride=ride).exists():
             return Response({"error": "Ride already accepted"}, status=400)
 
-        # Calculate deduction
         fare = ride.fare or Decimal('0.00')
-        cut_amount = fare * Decimal('0.10')  # 10% commission
+        cut_amount = fare * Decimal('0.10')
         tax_amount = Decimal(str(ride.tax_amount or 0)) if hasattr(ride, 'tax_amount') else Decimal('0.00')
         total_deduction = cut_amount
 
-        # If payment method is cash, include tax
         if getattr(ride, 'payment_method', 'online') == 'cash':
             total_deduction += tax_amount
 
         total_deduction = total_deduction.quantize(Decimal('0.01'))
 
-        # Check balance
         if balance < total_deduction:
-            return Response({"error": "Insufficient balance to accept ride"},
-                            status=403)
+            return Response({"error": "Insufficient balance to accept ride"}, status=403)
 
-        # Deduct balance
         deduct_worker_balance(worker.phone_number, total_deduction)
 
-        # Update ride status
         ride.status = 'accepted'
         ride.updated_at = timezone.now()
         ride.save(update_fields=['status', 'updated_at'])
 
-        # Create rider entry
-        Rider.objects.create(
+        rider = Rider.objects.create(
             ride=ride,
             rider_phone=worker.phone_number,
             customer_phone=ride.customer_phone,
@@ -1596,21 +1621,15 @@ def rider_job_action(request):
             updated_at=timezone.now()
         )
 
-        # Notify
-        message_text = (
-            f"You accepted a ride (Ride ID: {ride.id}) from {ride.pickup_address} to "
-            f"{ride.drop_address}. ₹{total_deduction:.2f} was deducted from your balance."
-        )
-
         Notification.objects.create(
             category="Ride",
             title="New Ride Accepted",
             phone_number=worker.phone_number,
-            message=message_text
+            message=f"Ride ID {ride.id} accepted successfully.",
+            deducted_amount=total_deduction
         )
 
         return Response({
-            "message": message_text,
             "ride_id": ride.id,
             "deduction_amount": float(total_deduction),
             "cut_percentage": float(cut_amount),
@@ -1644,6 +1663,7 @@ def rider_job_action(request):
         return Response({"message": "Ride cancelled and reopened for others"})
 
     return Response({"error": "Invalid action"}, status=400)
+
 
 # To show in admin panel all rides
 
