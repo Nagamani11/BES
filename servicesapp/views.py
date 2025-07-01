@@ -917,6 +917,7 @@ def list_all_orders(request):
         return Response(serializer.data, status=200)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
+
 # Notification API
 
 
@@ -935,10 +936,13 @@ def send_push_notification(expo_token, title, message):
         "Content-Type": "application/json"
     }
     try:
-        response = requests.post("https://exp.host/--/api/v2/push/send", json=payload, headers=headers)
+        response = requests.post(
+            "https://exp.host/--/api/v2/push/send", json=payload,
+            headers=headers)
         return response.json()
     except Exception as e:
         return {"error": str(e)}
+
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -959,7 +963,8 @@ def notifications(request):
             "title": n.title,
             "message": n.message,
             "created_at": n.created_at,
-            "order_id": n.order.id if n.order else None,
+            "order_id": n.order.id if n.order else (n.ride.id if n.ride else None),
+            "ride_id": n.ride.id if n.ride else None,
             "deducted_amount": float(n.deducted_amount) if n.deducted_amount else None
         }
         data.append(item)
@@ -968,7 +973,8 @@ def notifications(request):
     if notifications.exists():
         latest = notifications.first()
         try:
-            push_token_obj = PushToken.objects.get(phone_number__endswith=normalized_phone)
+            push_token_obj = PushToken.objects.get(
+                phone_number__endswith=normalized_phone)
             send_push_notification(
                 expo_token=push_token_obj.expo_token,
                 title=latest.title,
@@ -1072,8 +1078,10 @@ WORK_TYPE_KEY_MAP = {
 }
 MINIMUM_RECHARGE = 100
 
+
 def normalize_phone(phone):
     return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
+
 
 def get_worker_balance(phone_number):
     normalized = normalize_phone(phone_number)
@@ -1089,6 +1097,7 @@ def get_worker_balance(phone_number):
     ).aggregate(total=Sum('amount'))['total'] or 0
     return credits - debits
 
+
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1096,6 +1105,7 @@ def deduct_worker_balance(phone_number, amount):
         transaction_type='debit',
         is_paid=True
     )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -1149,7 +1159,8 @@ def worker_job_action(request):
 
     keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
     if not isinstance(keywords, list) or not keywords:
-        return Response({"message": "No jobs available for your work type"}, status=204)
+        return Response({"message": "No jobs available for your work type"},
+                        status=204)
 
     if action == "fetch":
         accepted_orders = set(Orders.objects.values_list(
@@ -1179,19 +1190,23 @@ def worker_job_action(request):
 
     elif action == "accept":
         if not booking_id:
-            return Response({"error": "booking_id is required for accept"}, status=400)
+            return Response({"error": "booking_id is required for accept"},
+                            status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id, status="Pending")
         except Payment.DoesNotExist:
-            return Response({"error": "This order is already accepted or not available"}, status=400)
+            return Response(
+                {"error": "This order is already accepted or not available"},
+                status=400)
 
         if Orders.objects.filter(
             booking_date=payment.booking_date,
             booking_time=payment.booking_time,
             customer_phone=payment.customer_phone
         ).exists():
-            return Response({"error": "This order is already accepted"}, status=400)
+            return Response({"error": "This order is already accepted"},
+                            status=400)
 
         tax_amount = Decimal(str(payment.tax_amount or 0))
         subtotal = Decimal(str(payment.amount)) - tax_amount
@@ -1206,7 +1221,9 @@ def worker_job_action(request):
         total_deduction = total_deduction.quantize(Decimal("0.01"))
 
         if balance < total_deduction:
-            return Response({"error": "Insufficient balance to accept this order."}, status=403)
+            return Response(
+                {"error": "Insufficient balance to accept this order."},
+                status=403)
 
         deduct_worker_balance(worker.phone_number, total_deduction)
 
@@ -1246,7 +1263,8 @@ def worker_job_action(request):
 
     elif action == "cancel":
         if not booking_id:
-            return Response({"error": "booking_id is required for cancel"}, status=400)
+            return Response({"error": "booking_id is required for cancel"},
+                            status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id)
@@ -1484,6 +1502,7 @@ def get_worker_balance(phone_number):
     ).aggregate(total=Sum('amount'))['total'] or 0
     return credits - debits
 
+
 def deduct_worker_balance(phone_number, amount):
     Recharge.objects.create(
         phone_number=phone_number,
@@ -1572,12 +1591,15 @@ def rider_job_action(request):
     # ACCEPT RIDE
     elif action == "accept":
         if not ride_id:
-            return Response({"error": "ride_id is required for accept"}, status=400)
+            return Response({"error": "ride_id is required for accept"},
+                            status=400)
 
         try:
             ride = Ride.objects.get(id=ride_id, status="requested")
         except Ride.DoesNotExist:
-            return Response({"error": "Ride not available or already accepted"}, status=404)
+            return Response(
+                {"error": "Ride not available or already accepted"},
+                status=404)
 
         if Rider.objects.filter(ride=ride).exists():
             return Response({"error": "Ride already accepted"}, status=400)
@@ -1593,7 +1615,8 @@ def rider_job_action(request):
         total_deduction = total_deduction.quantize(Decimal('0.01'))
 
         if balance < total_deduction:
-            return Response({"error": "Insufficient balance to accept ride"}, status=403)
+            return Response({"error": "Insufficient balance to accept ride"},
+                            status=403)
 
         deduct_worker_balance(worker.phone_number, total_deduction)
 
@@ -1626,7 +1649,8 @@ def rider_job_action(request):
             title="New Ride Accepted",
             phone_number=worker.phone_number,
             message=f"Ride ID {ride.id} accepted successfully.",
-            deducted_amount=total_deduction
+            deducted_amount=total_deduction,
+            ride=ride
         )
 
         return Response({
