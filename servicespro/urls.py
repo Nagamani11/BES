@@ -54,6 +54,8 @@ urlpatterns = [
     path('list_all_orders/', views.list_all_orders, name='list_all_orders'),
     path('notifications/', views.notifications,
          name='notifications'),
+    path('save_push_token/', views.save_push_token,
+         name='save_push_token'),
     path('worker_job_action/', views.worker_job_action,
          name='worker_job_action'),
     path('get_accepted_orders/', views.get_accepted_orders,
@@ -70,4 +72,7 @@ urlpatterns = [
          name='validate_ride_otp'),
     path('get_accepted_rides/', views.get_accepted_rides,
          name='get_accepted_rides'),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL,
+                          document_root=settings.MEDIA_ROOT)
