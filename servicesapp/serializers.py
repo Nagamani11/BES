@@ -4,6 +4,8 @@ from .models import OTP
 from .models import RechargeTransaction, Order, Recharge
 from .models import Notification, Ride
 from .models import Orders, Payment, ServicePerson, LocationHistory, Rider
+import os
+from django.conf import settings
 # OTP serializers
 
 
@@ -17,40 +19,39 @@ class OTPSerializer(serializers.ModelSerializer):
 
 
 class WorkerProfileSerializer(serializers.ModelSerializer):
+    photo = serializers.SerializerMethodField()  # this calls get_photo (not get_photo_url)
+    document_urls = serializers.SerializerMethodField()
+    certification_urls = serializers.SerializerMethodField()
+
     class Meta:
         model = WorkerProfile
-        fields = '__all__'
+        fields = [
+            'id', 'full_name', 'phone_number', 'email', 'work_type',
+            'years_of_experience', 'experience_country', 'specialization',
+            'education', 'photo', 'document_types', 'document_files',
+            'certification_types', 'certification_files',
+            'document_urls', 'certification_urls',
+            'created_at', 'updated_at'
+        ]
 
-    def validate(self, data):
-        work_type = data.get('work_type')
-
-        # Validate certification file for Tutors and Nursing
-        if work_type in ['Tutors', 'Nursing'] and not data.get('certification_file'):
-            raise serializers.ValidationError({
-                "certification_file": "Certification file is required for Tutors and Nursing."
-            })
-
-        return data
-
-    def get_photo_url(self, obj):
-        if obj.photo and hasattr(obj.photo, 'url'):
-            request = self.context.get('request')
-            return request.build_absolute_uri(obj.photo.url)
+    def get_photo(self, obj):  # ✅ CORRECT METHOD NAME
+        if obj.photo:
+            return self.context['request'].build_absolute_uri(obj.photo.url)
         return None
 
     def get_document_urls(self, obj):
-        request = self.context.get('request')
         return [
-            request.build_absolute_uri(f'/media/workers/{obj.id}/documents/{filename}')
-            for filename in (obj.document_files or [])
+            self.context['request'].build_absolute_uri(settings.MEDIA_URL + path)
+            for path in (obj.document_files or [])
         ]
 
     def get_certification_urls(self, obj):
-        request = self.context.get('request')
         return [
-            request.build_absolute_uri(f'/media/workers/{obj.id}/certifications/{filename}')
-            for filename in (obj.certification_files or [])
+            self.context['request'].build_absolute_uri(settings.MEDIA_URL + path)
+            for path in (obj.certification_files or [])
         ]
+
+
     
 # Recharge models
 
