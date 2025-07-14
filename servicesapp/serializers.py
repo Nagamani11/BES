@@ -19,7 +19,7 @@ class OTPSerializer(serializers.ModelSerializer):
 
 
 class WorkerProfileSerializer(serializers.ModelSerializer):
-    photo = serializers.SerializerMethodField()  # this calls get_photo (not get_photo_url)
+    photo = serializers.SerializerMethodField()
     document_urls = serializers.SerializerMethodField()
     certification_urls = serializers.SerializerMethodField()
 
@@ -51,8 +51,6 @@ class WorkerProfileSerializer(serializers.ModelSerializer):
             for path in (obj.certification_files or [])
         ]
 
-
-    
 # Recharge models
 
 
