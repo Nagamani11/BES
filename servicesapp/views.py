@@ -33,14 +33,13 @@ from django.core.files.storage import default_storage
 from .serializers import (
     NearbyServicePersonSerializer
 )
-import requests
 from .models import LocationHistory
 from .models import Rider
 from django.core.cache import cache
 from geopy.distance import geodesic
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Sum
-from .models import Ride, PushToken
+from .models import Ride
 from geopy.geocoders import Nominatim
 from .models import ServicePerson
 import os
@@ -155,13 +154,14 @@ def verify_otp(request):
         return Response({"error": "Something went wrong", "details": str(e)},
                         status=500)
 
+
 # Form API for Worker Profile
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def worker_form(request):
-    data = request.data.copy()
+    data = request.data.copy()  # Use copy to avoid modifying original data
 
     # Parse list fields safely
     try:
@@ -220,10 +220,10 @@ def worker_form(request):
 @api_view(['GET', 'POST'])
 @permission_classes([AllowAny])
 def register_worker(request):
-    def format_choices(choices):
-        return [{"value": c[0], "label": c[1]} for c in choices]
+    def format_choices(choices):  # Helper function to format choices
+        return [{"value": c[0], "label": c[1]} for c in choices]  # Convert tuples to dicts
 
-    if request.method == "GET":
+    if request.method == "GET":  # If GET request, return form fields
         form_fields = {
             "full_name": {"type": "text", "required": True,
                           "label": "Full Name"},
@@ -258,7 +258,7 @@ def register_worker(request):
             "specialization": {"type": "text", "required": False,
                                "label": "Specialization"},
 
-            # 👇 Updated to allow multiple selections
+            #  Updated to allow multiple selections
             "document_types": {
                 "type": "multiselect",
                 "required": True,
@@ -316,6 +316,21 @@ def get_registered_employees(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# User Profile API
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_worker_profile(request, phone_number):
+    try:
+        worker = WorkerProfile.objects.get(phone_number=phone_number)
+    except WorkerProfile.DoesNotExist:
+        return Response({'error': 'Worker not found'}, status=404)
+
+    serializer = WorkerProfileSerializer(worker, context={'request': request})
+    return Response(serializer.data)
+
+
 # Recharge APIs
 
 # 1. Create a new recharge request
@@ -326,44 +341,44 @@ client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID,
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # Allow any user to access this API
 def get_balance(request):
     mobile_number = request.query_params.get('mobile_number')
 
     if not mobile_number:
         return JsonResponse({'error': 'mobile_number is required'}, status=400)
 
-    normalized_phone = re.sub(r'\D', '', mobile_number)
+    normalized_phone = re.sub(r'\D', '', mobile_number)  # Remove non-digit characters
     if normalized_phone.startswith('91') and len(normalized_phone) == 12:
-        normalized_phone = normalized_phone[2:]
+        normalized_phone = normalized_phone[2:]  # Remove country code if present
 
     total_credit = Recharge.objects.filter(
         phone_number__endswith=normalized_phone,
         transaction_type='credit',
         is_paid=True
-    ).aggregate(total=Sum('amount'))['total'] or 0
+    ).aggregate(total=Sum('amount'))['total'] or 0  # Use 'or 0' to handle None case
 
     total_debit = Recharge.objects.filter(
         phone_number__endswith=normalized_phone,
         transaction_type='debit',
         is_paid=True
-    ).aggregate(total=Sum('amount'))['total'] or 0
+    ).aggregate(total=Sum('amount'))['total'] or 0  # Use 'or 0' to handle None case
 
-    balance = round(total_credit - total_debit, 2)
+    balance = round(total_credit - total_debit, 2)  # Round to 2 decimal places
     return JsonResponse({'balance': balance})
 
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def create_recharge(request):
-    mobile_number = request.data.get('mobile_number')
-    amount = request.data.get('amount')
+    mobile_number = request.data.get('mobile_number')  # Get mobile number from request data
+    amount = request.data.get('amount')  # Get amount from request data
 
     if not mobile_number or not amount:
         return JsonResponse({'error': 'mobile_number and amount are required'},
                             status=400)
 
-    normalized_phone = re.sub(r'\D', '', mobile_number)
+    normalized_phone = re.sub(r'\D', '', mobile_number)  # Remove non-digit characters
     if normalized_phone.startswith('91') and len(normalized_phone) == 12:
         normalized_phone = normalized_phone[2:]
 
@@ -386,16 +401,28 @@ def create_payment(request):
     try:
         data = request.data
 
-        # Amount in rupees (expected from frontend)
+        # Step 1: Validate and convert amount
+        amount = data.get('amount')
+        if amount is None or str(amount).strip() == "":
+            return JsonResponse(
+                {'success': False, 'error': 'Amount is required'}, status=400)
         try:
-            rupee_amount = float(data['amount'])  # e.g. 100.0
-        except (KeyError, ValueError):
+            rupee_amount = float(amount)
+            if rupee_amount <= 0:
+                return JsonResponse(
+                        {
+                            'success': False,
+                            'error': 'Amount must be a positive number'
+                        },
+                        status=400
+                    )
+        except (ValueError, TypeError):
             return JsonResponse(
                 {'success': False, 'error': 'Valid amount (in rupees) is required'}, status=400)
 
         amount_paise = int(rupee_amount * 100)
 
-        # Normalize phone number
+        # Step 2: Normalize phone number
         raw_phone = data.get('phone_number')
         if not raw_phone:
             return JsonResponse(
@@ -410,29 +437,40 @@ def create_payment(request):
                 {'success': False, 'error': 'Invalid phone number format'},
                 status=400)
 
-        # Validate payment method
+        # Step 3: Validate payment method
         payment_method = data.get('payment_method', 'UPI')
         valid_methods = dict(RechargeTransaction.PAYMENT_METHOD_CHOICES)
         if payment_method not in valid_methods:
-            return JsonResponse(
-                {'success': False, 'error': f'Invalid payment method. Choose from: {", ".join(valid_methods.keys())}'}, status=400)
+            return JsonResponse({
+                'success': False,
+                'error': f'Invalid payment method. Choose from: {", ".join(str(k) for k in valid_methods.keys())}'
+            }, status=400)
 
-        # Optional: Get user
+        # Step 4: Get user (if registered)
         user = User.objects.filter(username=normalized_phone).first()
 
-        # 1. Create Razorpay order
+        # Step 5: Razorpay client (LIVE)
+        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID,
+                                       settings.RAZORPAY_KEY_SECRET))
+
+        # Step 6: Create Razorpay Order with custom metadata
+        booking_id = data.get('booking_id', 'recharge')
         order_data = {
-            'amount': amount_paise,
-            'currency': 'INR',
-            'payment_capture': 1,
-            'notes': {
-                'user_id': str(user.id) if user else 'anonymous',
-                'phone_number': normalized_phone
+            "amount": amount_paise,
+            "currency": "INR",
+            "receipt": f"booking_{booking_id}",
+            "payment_capture": 1,
+            "notes": {
+                "booking_id": str(booking_id),
+                "user_id": str(user.id) if user else 'guest',
+                "user_phone": normalized_phone,
+                "payment_method": payment_method,
+                "app_type": " HiFix Experts"
             }
         }
-        razorpay_order = client.order.create(order_data)
+        razorpay_order = client.order.create(data=order_data)
 
-        # 2. Save transaction as SUCCESS (payment is considered completed here)
+        # Step 7: Save to RechargeTransaction
         RechargeTransaction.objects.create(
             user=user,
             phone_number=normalized_phone,
@@ -442,7 +480,7 @@ def create_payment(request):
             status='Success'  # Marked as Success directly
         )
 
-        # 3. Add to Recharge table as credit
+        # Step 8: Credit Recharge table
         Recharge.objects.create(
             phone_number=normalized_phone,
             amount=rupee_amount,
@@ -450,12 +488,16 @@ def create_payment(request):
             is_paid=True
         )
 
+        # Step 9: Return response to frontend
         return JsonResponse({
             'success': True,
             'order_id': razorpay_order['id'],
             'amount_rupees': rupee_amount,
             'phone_number': normalized_phone,
-            'key_id': settings.RAZORPAY_KEY_ID
+            'key_id': settings.RAZORPAY_KEY_ID,
+            'payment_method': payment_method,
+            'app_type': "HiFix Experts",
+            'receipt': razorpay_order.get('receipt')
         }, status=201)
 
     except Exception as e:
@@ -917,31 +959,7 @@ def list_all_orders(request):
         return Response(serializer.data, status=200)
     except Exception as e:
         return Response({"error": str(e)}, status=500)
-
 # Notification API
-
-
-def normalize_phone(phone):
-    return phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
-
-
-def send_push_notification(expo_token, title, message):
-    payload = {
-        "to": expo_token,
-        "sound": "default",
-        "title": title,
-        "body": message
-    }
-    headers = {
-        "Content-Type": "application/json"
-    }
-    try:
-        response = requests.post(
-            "https://exp.host/--/api/v2/push/send", json=payload,
-            headers=headers)
-        return response.json()
-    except Exception as e:
-        return {"error": str(e)}
 
 
 @api_view(['GET'])
@@ -951,7 +969,8 @@ def notifications(request):
     if not phone:
         return Response({"error": "Phone number is required"}, status=400)
 
-    normalized_phone = normalize_phone(phone)
+    # Normalize phone (keep last 10 digits)
+    normalized_phone = phone.replace(' ', '').replace('-', '').replace('+91', '').strip()[-10:]
 
     notifications = Notification.objects.filter(
         phone_number__endswith=normalized_phone
@@ -959,50 +978,26 @@ def notifications(request):
 
     data = []
     for n in notifications:
-        item = {
+        deduction_amount = None
+
+        # Extract ₹amount from message using regex
+        match = re.search(r"₹([\d,]+(?:\.\d{1,2})?)", n.message)
+        if match:
+            try:
+                amount_str = match.group(1).replace(',', '')
+                deduction_amount = float(amount_str)
+            except ValueError:
+                deduction_amount = None
+
+        data.append({
             "title": n.title,
             "message": n.message,
             "created_at": n.created_at,
-            "order_id": n.order.id if n.order else (n.ride.id if n.ride else None),
-            "ride_id": n.ride.id if n.ride else None,
-            "deducted_amount": float(n.deducted_amount) if n.deducted_amount else None
-        }
-        data.append(item)
-
-    # ✅ Send push notification for the latest notification only
-    if notifications.exists():
-        latest = notifications.first()
-        try:
-            push_token_obj = PushToken.objects.get(
-                phone_number__endswith=normalized_phone)
-            send_push_notification(
-                expo_token=push_token_obj.expo_token,
-                title=latest.title,
-                message=latest.message
-            )
-        except PushToken.DoesNotExist:
-            pass  # No token found — skip push
+            "order_id": n.order.id if n.order else None,
+            "deduction_amount": deduction_amount
+        })
 
     return Response({"notifications": data})
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def save_push_token(request):
-    phone = request.data.get("phone")
-    expo_token = request.data.get("expo_token")
-
-    if not phone or not expo_token:
-        return Response({"error": "Missing phone or expo_token"}, status=400)
-
-    normalized = normalize_phone(phone)
-
-    PushToken.objects.update_or_create(
-        phone_number=normalized,
-        defaults={"expo_token": expo_token}
-    )
-
-    return Response({"success": True})
 
 # In single API
 
@@ -1076,7 +1071,7 @@ WORK_TYPE_KEY_MAP = {
     "Laundry": "Laundry",
     "Swimming": "Swimming"
 }
-MINIMUM_RECHARGE = 100
+MINIMUM_RECHARGE = 50
 
 
 def normalize_phone(phone):
@@ -1159,8 +1154,7 @@ def worker_job_action(request):
 
     keywords = WORK_TYPE_KEYWORDS.get(work_type_key, [])
     if not isinstance(keywords, list) or not keywords:
-        return Response({"message": "No jobs available for your work type"},
-                        status=204)
+        return Response({"message": "No jobs available for your work type"}, status=204)
 
     if action == "fetch":
         accepted_orders = set(Orders.objects.values_list(
@@ -1190,40 +1184,39 @@ def worker_job_action(request):
 
     elif action == "accept":
         if not booking_id:
-            return Response({"error": "booking_id is required for accept"},
-                            status=400)
+            return Response({"error": "booking_id is required for accept"}, status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id, status="Pending")
         except Payment.DoesNotExist:
-            return Response(
-                {"error": "This order is already accepted or not available"},
-                status=400)
+            return Response({"error": "This order is already accepted or not available"}, status=400)
 
         if Orders.objects.filter(
             booking_date=payment.booking_date,
             booking_time=payment.booking_time,
             customer_phone=payment.customer_phone
         ).exists():
-            return Response({"error": "This order is already accepted"},
-                            status=400)
+            return Response({"error": "This order is already accepted"}, status=400)
 
+        # ✅ Calculate GST/tax and 10% cut only on (amount - tax)
         tax_amount = Decimal(str(payment.tax_amount or 0))
         subtotal = Decimal(str(payment.amount)) - tax_amount
         cut_amount = subtotal * Decimal('0.10')
 
+        # ✅ Deduct tax only if payment_method is "cash"
         if payment.payment_method == "cash":
             total_deduction = cut_amount + tax_amount
         else:
             total_deduction = cut_amount
 
+        # ✅ Properly round values
         cut_amount = cut_amount.quantize(Decimal("0.01"))
         total_deduction = total_deduction.quantize(Decimal("0.01"))
 
         if balance < total_deduction:
-            return Response(
-                {"error": "Insufficient balance to accept this order."},
-                status=403)
+            return Response({
+                "error": "Insufficient balance to accept this order."
+            }, status=403)
 
         deduct_worker_balance(worker.phone_number, total_deduction)
 
@@ -1244,27 +1237,31 @@ def worker_job_action(request):
         payment.status = "Scheduled"
         payment.save()
 
+        message_text = (
+            f"You accepted an order (Booking ID: {payment.id}) for "
+            f"{payment.subcategory_name} on {payment.service_date}. "
+            f"₹{total_deduction:.2f} was deducted from your balance."
+        )
+
         Notification.objects.create(
             category="Order",
             title="New Order Confirmed",
             phone_number=worker.phone_number,
-            message=f"Booking ID {payment.id} accepted successfully.",
-            order=new_order,
-            deducted_amount=total_deduction
+            message=message_text,
+            order=new_order
         )
 
         return Response({
+            "message": message_text,
             "booking_id": payment.id,
             "deduction_amount": float(total_deduction),
             "cut_percentage": float(cut_amount),
             "tax_amount": float(tax_amount if payment.payment_method == "cash" else 0),
             "balance": float(get_worker_balance(worker.phone_number))
         })
-
     elif action == "cancel":
         if not booking_id:
-            return Response({"error": "booking_id is required for cancel"},
-                            status=400)
+            return Response({"error": "booking_id is required for cancel"}, status=400)
 
         try:
             payment = Payment.objects.get(id=booking_id)
@@ -1396,7 +1393,8 @@ def service_persons(request):
                             status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            service_person = ServicePerson.objects.get(worker_profile__phone_number=phone)
+            service_person = ServicePerson.objects.get(
+                worker_profile__phone_number=phone)
             service_person.current_latitude = float(latitude)
             service_person.current_longitude = float(longitude)
             service_person.save()
@@ -1411,9 +1409,11 @@ def service_persons(request):
             return Response({'status': 'Location updated successfully'})
 
         except ServicePerson.DoesNotExist:
-            return Response({'error': 'ServicePerson not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({'error': 'ServicePerson not found'},
+                            status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': str(e)},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     # ---------- GET: Nearby service persons ----------
     serializer = NearbyServicePersonSerializer(data=request.query_params)
@@ -1434,17 +1434,20 @@ def service_persons(request):
     for person in queryset:
         if person.current_latitude is not None and person.current_longitude is not None:
             try:
-                person_coords = (person.current_latitude, person.current_longitude)
+                person_coords = (person.current_latitude,
+                                 person.current_longitude)
                 distance_km = geodesic(user_coords, person_coords).km
 
                 if distance_km <= radius:
                     try:
-                        location = geolocator.reverse(person_coords, language='en')
+                        location = geolocator.reverse(person_coords,
+                                                      language='en')
                         address = location.address if location else "Unknown location"
                     except Exception:
                         address = "Reverse geocoding failed"
 
-                    name = getattr(person.worker_profile, "full_name", "Unknown")
+                    name = getattr(person.worker_profile,
+                                   "full_name", "Unknown")
                     phone = getattr(person.worker_profile, "phone_number", "")
 
                     nearby_list.append({
@@ -1472,7 +1475,7 @@ def service_persons(request):
 
 
 # Constants
-MINIMUM_RECHARGE = 100
+MINIMUM_RECHARGE = 50
 RIDE_WORK_TYPES = {
     'bike_taxi': 'bike',
     'auto_taxi': 'auto',
@@ -1604,27 +1607,33 @@ def rider_job_action(request):
         if Rider.objects.filter(ride=ride).exists():
             return Response({"error": "Ride already accepted"}, status=400)
 
+        # Calculate deduction
         fare = ride.fare or Decimal('0.00')
-        cut_amount = fare * Decimal('0.10')
+        cut_amount = fare * Decimal('0.10')  # 10% commission
         tax_amount = Decimal(str(ride.tax_amount or 0)) if hasattr(ride, 'tax_amount') else Decimal('0.00')
         total_deduction = cut_amount
 
+        # If payment method is cash, include tax
         if getattr(ride, 'payment_method', 'online') == 'cash':
             total_deduction += tax_amount
 
         total_deduction = total_deduction.quantize(Decimal('0.01'))
 
+        # Check balance
         if balance < total_deduction:
             return Response({"error": "Insufficient balance to accept ride"},
                             status=403)
 
+        # Deduct balance
         deduct_worker_balance(worker.phone_number, total_deduction)
 
+        # Update ride status
         ride.status = 'accepted'
         ride.updated_at = timezone.now()
         ride.save(update_fields=['status', 'updated_at'])
 
-        rider = Rider.objects.create(
+        # Create rider entry
+        Rider.objects.create(
             ride=ride,
             rider_phone=worker.phone_number,
             customer_phone=ride.customer_phone,
@@ -1644,16 +1653,21 @@ def rider_job_action(request):
             updated_at=timezone.now()
         )
 
+        # Notify
+        message_text = (
+            f"You accepted a ride (Ride ID: {ride.id}) from {ride.pickup_address} to "
+            f"{ride.drop_address}. ₹{total_deduction:.2f} was deducted from your balance."
+        )
+
         Notification.objects.create(
             category="Ride",
             title="New Ride Accepted",
             phone_number=worker.phone_number,
-            message=f"Ride ID {ride.id} accepted successfully.",
-            deducted_amount=total_deduction,
-            ride=ride
+            message=message_text
         )
 
         return Response({
+            "message": message_text,
             "ride_id": ride.id,
             "deduction_amount": float(total_deduction),
             "cut_percentage": float(cut_amount),
@@ -1687,7 +1701,6 @@ def rider_job_action(request):
         return Response({"message": "Ride cancelled and reopened for others"})
 
     return Response({"error": "Invalid action"}, status=400)
-
 
 # To show in admin panel all rides
 
