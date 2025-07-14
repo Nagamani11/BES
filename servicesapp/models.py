@@ -294,23 +294,13 @@ class Notification(models.Model):
     message = models.TextField()
     order = models.ForeignKey('Orders', null=True, blank=True,
                               on_delete=models.CASCADE)
-    ride = models.ForeignKey('Ride', on_delete=models.CASCADE) 
-    deducted_amount = models.DecimalField(max_digits=10, decimal_places=2,
-                                          null=True, blank=True)  # ✅ Added
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return self.title
 
 
-class PushToken(models.Model):
-    phone_number = models.CharField(max_length=15)
-    expo_token = models.CharField(max_length=255)
-
-    def __str__(self):
-        return f"{self.phone_number} - {self.expo_token}"
 # servicesapp/models.py
-
 
 class Payment(models.Model):
     PAYMENT_METHOD_CHOICES = [
