@@ -29,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'your-default-secret-key')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = []
 
@@ -64,6 +64,7 @@ ROOT_URLCONF = 'servicespro.urls'
 
 ALLOWED_HOSTS = [
     'hifixservices.onrender.com',
+    'service-backend.hifix.in',
     'localhost',
     '127.0.0.1'
 ]
@@ -72,7 +73,8 @@ ALLOWED_HOSTS = ['*']
 CORS_ALLOWED_ORIGINS = [
 
     "http://192.168.29.183:8000",  # if you're accessing from mobile device
-    "https://hifixservices.onrender.com"
+    "https://hifixservices.onrender.com",
+    "https://service-backend.hifix.in"
 ]
 
 
@@ -184,6 +186,9 @@ load_dotenv()
 TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
 TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
 TWILIO_PHONE_NUMBER = os.getenv('TWILIO_PHONE_NUMBER')
+print(TWILIO_ACCOUNT_SID)
+print(TWILIO_AUTH_TOKEN)
+print(TWILIO_PHONE_NUMBER)
 
 
 # payment APIs
